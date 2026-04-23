@@ -1,0 +1,27 @@
+# Environment
+.env
+
+# Telegram session files
+*.session
+*.session-journal
+
+# Database
+data/*.db
+data/*.db-journal
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
