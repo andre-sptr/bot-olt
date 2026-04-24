@@ -12,8 +12,10 @@ WAHA_URL = "https://waha-dutxvo095iqn.cgk-lab.sumopod.my.id"
 WAHA_SESSION = "OLTReport"
 WAHA_API_KEY = "ROpWNPkTUavqEbnz5zKU4mTiL0HIZoye"
 # 120363425065142845@g.us = real
+# 120363425525578088@g.us = real
 # 120363423984319917@g.us = test
 GROUP_ID_TUJUAN = [
+    #"120363423984319917@g.us",
     "120363425065142845@g.us",
     "120363425525578088@g.us" 
 ]
@@ -100,9 +102,9 @@ def optimalkan_resolusi(path_gambar):
 
 
 async def ambil_screenshot():
-    """Mengambil screenshot dari Google Spreadsheet."""
+    """Mengambil screenshot dari Google Spreadsheet dengan pengecekan data di baris ke-3."""
     path_ss = nama_file_ss()
-    catat_log(f"Mulai mengambil screenshot: {tanggal_hari_ini()}")
+    catat_log(f"Mulai membuka halaman untuk cek data & screenshot: {tanggal_hari_ini()}")
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
@@ -117,6 +119,28 @@ async def ambil_screenshot():
         try:
             await page.goto(target_url, wait_until="networkidle", timeout=90000)
             await page.wait_for_timeout(60000)
+
+            ada_data = await page.evaluate('''() => {
+                const rows = Array.from(document.querySelectorAll('tr')).filter(tr => tr.offsetHeight > 0);
+                
+                if (rows.length <= 2) return false;
+                const cells = rows[2].querySelectorAll('td');
+                
+                for (let i = 0; i < cells.length; i++) {
+                    const text = cells[i].innerText.replace(/\\u00A0/g, "").trim();
+                    
+                    if (text !== '') {
+                        return true; // Ditemukan data valid! Lanjutkan script.
+                    }
+                }
+                return false;
+            }''')
+
+            if not ada_data:
+                catat_log("ℹ️ Pengecekan selesai: Tidak ada data di Baris ke-3.")
+                return None
+            
+            catat_log("✅ Data ditemukan di Baris ke-3! Melanjutkan proses screenshot...")
 
             batas = await page.evaluate('''() => {
                 let maxX = 0, maxY = 0;
@@ -156,7 +180,7 @@ async def ambil_screenshot():
         finally:
             await browser.close()
 
-    return path_ss
+    return path_ss if 'ada_data' in locals() and ada_data else None
 
 
 def buat_session_baru():
@@ -246,6 +270,11 @@ def tugas_harian():
     catat_log("🚀 Memulai tugas harian Redaman...")
 
     path_ss = asyncio.run(ambil_screenshot())
+
+    if path_ss is None:
+        catat_log("🏁 Eksekusi dihentikan karena tidak ada data yang perlu dikirim.")
+        catat_log("=" * 50)
+        return
 
     if os.path.exists(path_ss):
         optimalkan_resolusi(path_ss)
