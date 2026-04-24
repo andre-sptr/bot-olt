@@ -19,7 +19,7 @@ GROUP_ID_TUJUAN = [
 
 URL_PUBLISHED = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT5G7iUjTkkbP_rc63bVGxLI_rxfb9O8BTk3EWRHaWUiPdY4zB2Ji4Rcw9MMJQOiCMz4hTVtQ6qFzg4/pubhtml"
 GID_SHEET = "673821244"
-RENTANG_CELL = "A1:K24"
+RENTANG_CELL = "A1:K22"
 
 FOLDER_GAMBAR = "images"
 FOLDER_LOG = "logs"
