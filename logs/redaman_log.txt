@@ -1,0 +1,68 @@
+[09:51:29] ==================================================
+[09:51:29] 🚀 Memulai tugas harian Redaman...
+[09:51:29] Mulai membuka halaman untuk cek data & screenshot: 2026-04-24
+[09:52:44] ✅ Data ditemukan di Baris ke-3! Melanjutkan proses screenshot...
+[09:52:44] Screenshot berhasil diambil dari GID: 214961105!
+[09:52:44] Mengirim gambar ke grup WhatsApp: 120363423984319917@g.us via WAHA
+[09:52:45] ✅ Berhasil dikirim ke WhatsApp (120363423984319917@g.us)!
+[09:52:47] 🗑️ File gambar berhasil dihapus dari storage VPS.
+[09:52:47] 🏁 Tugas harian Redaman selesai.
+[09:52:47] ==================================================
+[09:54:00] ==================================================
+[09:54:00] 🚀 Memulai tugas harian Redaman...
+[09:54:00] Mulai membuka halaman untuk cek data & screenshot: 2026-04-24
+[09:54:09] ✅ Data ditemukan di Baris ke-3! Melanjutkan proses screenshot...
+[09:54:09] Screenshot berhasil diambil dari GID: 214961105!
+[09:54:09] Mengirim gambar ke grup WhatsApp: 120363423984319917@g.us via WAHA
+[09:54:10] ✅ Berhasil dikirim ke WhatsApp (120363423984319917@g.us)!
+[09:54:12] 🗑️ File gambar berhasil dihapus dari storage VPS.
+[09:54:12] 🏁 Tugas harian Redaman selesai.
+[09:54:12] ==================================================
+[09:56:36] ==================================================
+[09:56:36] 🚀 Memulai tugas harian Redaman...
+[09:56:36] Mulai membuka halaman untuk cek data & screenshot: 2026-04-24
+[09:56:44] ℹ️ Pengecekan selesai: Tidak ada data di Baris ke-3.
+[09:56:44] 🏁 Eksekusi dihentikan karena tidak ada data yang perlu dikirim.
+[09:56:44] ==================================================
+[09:56:49] ==================================================
+[09:56:49] 🚀 Memulai tugas harian Redaman...
+[09:56:49] Mulai membuka halaman untuk cek data & screenshot: 2026-04-24
+[09:56:57] ℹ️ Pengecekan selesai: Tidak ada data di Baris ke-3.
+[09:56:57] 🏁 Eksekusi dihentikan karena tidak ada data yang perlu dikirim.
+[09:56:57] ==================================================
+[09:57:00] ==================================================
+[09:57:00] 🚀 Memulai tugas harian Redaman...
+[09:57:00] Mulai membuka halaman untuk cek data & screenshot: 2026-04-24
+[09:57:17] ✅ Data ditemukan di Baris ke-3! Melanjutkan proses screenshot...
+[09:57:17] Screenshot berhasil diambil dari GID: 214961105!
+[09:57:17] Mengirim gambar ke grup WhatsApp: 120363423984319917@g.us via WAHA
+[09:57:18] ❌ Gagal mengirim ke 120363423984319917@g.us. Status: 500, Response: {"statusCode":500,"timestamp":"2026-04-24T02:57:18.787Z","exception":{"name":"ProtocolError","message":"Protocol error (Runtime.callFunctionOn): Promise was collected","stack":"ProtocolError: Protocol error (Runtime.callFunctionOn): Promise was collected\n    at <instance_members_initializer> (/app/node_modules/puppeteer-core/lib/cjs/puppeteer/common/CallbackRegistry.js:103:14)\n    at new Callback (/app/node_modules/puppeteer-core/lib/cjs/puppeteer/common/CallbackRegistry.js:107:16)\n    at CallbackRegistry.create (/app/node_modules/puppeteer-core/lib/cjs/puppeteer/common/CallbackRegistry.js:25:26)\n    at Connection._rawSend (/app/node_modules/puppeteer-core/lib/cjs/puppeteer/cdp/Connection.js:108:26)\n    at CdpCDPSession.send (/app/node_modules/puppeteer-core/lib/cjs/puppeteer/cdp/CdpSession.js:74:33)\n    at #evaluate (/app/node_modules/puppeteer-core/lib/cjs/puppeteer/cdp/ExecutionContext.js:363:50)\n    at ExecutionContext.evaluate (/app/node_modules/puppeteer-core/lib/cjs/puppeteer/cdp/ExecutionContext.js:277:36)\n    at IsolatedWorld.evaluate (/app/node_modules/puppeteer-core/lib/cjs/puppeteer/cdp/IsolatedWorld.js:100:30)\n    at CdpFrame.evaluate (/app/node_modules/puppeteer-core/lib/cjs/puppeteer/api/Frame.js:362:43)\n    at CdpFrame.<anonymous> (/app/node_modules/puppeteer-core/lib/cjs/puppeteer/util/decorators.js:109:27)\n    at CdpPage.evaluate (/app/node_modules/puppeteer-core/lib/cjs/puppeteer/api/Page.js:818:43)\n    at WPage.evaluate (/app/dist/core/engines/webjs/WPage.js:13:36)\n    at WebjsClientPlus.sendMessage (/app/node_modules/whatsapp-web.js/src/Client.js:1095:44)\n    at WhatsappSessionWebJSPlus.sendImage (/app/dist/plus/engines/webjs/session.webjs.plus.js:78:30)\n    at async descriptor.value (/app/dist/core/abc/activity.js:9:20)"},"request":{"path":"/api/sendImage","method":"POST","body":{"session":"OLTReport","chatId":"120363423984319917@g.us","file":{"mimetype":"image/png","filename":"Report_Redaman_2026-04-24.png","data":"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"},"caption":"📊 *Reporting Redaman Tinggi Uplink*\n📝 Created by ISP.SBT\nTanggal: 2026-04-24"},"query":{}},"version":{"version":"2026.2.2","engine":"WEBJS","tier":"PLUS","browser":"/usr/bin/chromium","platform":"linux/x64","worker":{"id":null}}}
+[09:57:20] 🗑️ File gambar berhasil dihapus dari storage VPS.
+[09:57:20] 🏁 Tugas harian Redaman selesai.
+[09:57:20] ==================================================
+[09:58:39] ==================================================
+[09:58:39] 🚀 Memulai tugas harian Redaman...
+[09:58:39] Mulai membuka halaman untuk cek data & screenshot: 2026-04-24
+[09:58:47] ✅ Data ditemukan di Baris ke-3! Melanjutkan proses screenshot...
+[09:58:47] Screenshot berhasil diambil dari GID: 214961105!
+[09:58:47] Mengirim gambar ke grup WhatsApp: 120363423984319917@g.us via WAHA
+[09:58:48] ✅ Berhasil dikirim ke WhatsApp (120363423984319917@g.us)!
+[09:58:50] 🗑️ File gambar berhasil dihapus dari storage VPS.
+[09:58:50] 🏁 Tugas harian Redaman selesai.
+[09:58:50] ==================================================
+[09:59:02] ==================================================
+[09:59:02] 🚀 Memulai tugas harian Redaman...
+[09:59:02] Mulai membuka halaman untuk cek data & screenshot: 2026-04-24
+[09:59:17] ℹ️ Pengecekan selesai: Tidak ada data di Baris ke-3.
+[09:59:17] 🏁 Eksekusi dihentikan karena tidak ada data yang perlu dikirim.
+[09:59:17] ==================================================
+[09:59:24] ==================================================
+[09:59:24] 🚀 Memulai tugas harian Redaman...
+[09:59:24] Mulai membuka halaman untuk cek data & screenshot: 2026-04-24
+[09:59:37] ✅ Data ditemukan di Baris ke-3! Melanjutkan proses screenshot...
+[09:59:37] Screenshot berhasil diambil dari GID: 214961105!
+[09:59:37] Mengirim gambar ke grup WhatsApp: 120363423984319917@g.us via WAHA
+[09:59:38] ✅ Berhasil dikirim ke WhatsApp (120363423984319917@g.us)!
+[09:59:40] 🗑️ File gambar berhasil dihapus dari storage VPS.
+[09:59:40] 🏁 Tugas harian Redaman selesai.
+[09:59:40] ==================================================
