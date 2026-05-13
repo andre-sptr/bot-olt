@@ -48,7 +48,6 @@ GROUP_ID_TUJUAN = [
 
 URL_PUBLISHED = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQMeEHrKcSrqZcoiFvTbXOFv-TxTj0BojoPRm5go1PZBlLHzyjVGiVyDmYfMEIUJ3hDQb1mQGfpHfsC/pubhtml" 
 GID_SHEET_SS = "633289218"
-RENTANG_CELL = "B6:AG38"
 
 # ==========================================
 # 4. MANAJEMEN FOLDER & LOG
@@ -64,7 +63,9 @@ def tanggal_hari_ini():
 def nama_file_log():
     return os.path.join(FOLDER_LOG, "mirror_insera_log.txt")
 
-def nama_file_ss():
+def nama_file_ss(label=""):
+    if label:
+        return os.path.join(FOLDER_GAMBAR, f"Report_Insera_{tanggal_hari_ini()}_{label}.png")
     return os.path.join(FOLDER_GAMBAR, f"Report_Insera_{tanggal_hari_ini()}.png")
 
 def catat_log(pesan):
@@ -110,21 +111,22 @@ def optimalkan_resolusi(path_gambar):
     except Exception as e:
         catat_log(f"⚠️ Gagal mengoptimalkan resolusi: {e}")
 
-async def ambil_screenshot():
-    path_ss = nama_file_ss()
+async def ambil_screenshot(rentang_cell, label=""):
+    path_ss = nama_file_ss(label)
     if os.path.exists(path_ss):
         os.remove(path_ss)
         
-    catat_log(f"📸 Mulai mengambil screenshot area {RENTANG_CELL}...")
+    catat_log(f"📸 Mulai memproses screenshot area {rentang_cell}...")
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context(viewport={"width": 3000, "height": 1500})
         page = await context.new_page()
 
-        target_url = f"{URL_PUBLISHED}?gid={GID_SHEET_SS}&single=true&range={RENTANG_CELL}&widget=false&headers=false&chrome=false"
+        target_url = f"{URL_PUBLISHED}?gid={GID_SHEET_SS}&single=true&range={rentang_cell}&widget=false&headers=false&chrome=false"
 
         try:
+            catat_log(f"-> Mengakses URL untuk rentang {rentang_cell}...")
             await page.goto(target_url, wait_until="domcontentloaded", timeout=90000)
             await page.wait_for_selector("table.waffle:visible", timeout=60000)
             await page.wait_for_timeout(3000) 
@@ -151,11 +153,28 @@ async def ambil_screenshot():
             }""")
 
             tabel_sheet = page.locator("table.waffle:visible").first
-            await tabel_sheet.screenshot(path=path_ss)
-            catat_log("✅ Screenshot berhasil diambil!")
+            
+            berhasil_ss = False
+            for percobaan in range(1, 4):
+                try:
+                    catat_log(f"-> Mengambil tangkapan layar {rentang_cell} (Percobaan {percobaan}/3)...")
+                    await tabel_sheet.screenshot(path=path_ss, timeout=60000)
+                    catat_log(f"✅ Screenshot {label} ({rentang_cell}) berhasil diambil!")
+                    berhasil_ss = True
+                    break
+                except Exception as e_ss:
+                    catat_log(f"⚠️ Gagal mengambil screenshot pada percobaan {percobaan}: {e_ss}")
+                    if percobaan < 3:
+                        catat_log("🔄 Menunggu 5 detik sebelum mencoba lagi...")
+                        await page.wait_for_timeout(5000)
+            
+            if not berhasil_ss:
+                catat_log(f"❌ Menyerah, gagal mengambil screenshot untuk {rentang_cell} setelah 3 percobaan.")
+                return None
 
         except Exception as e:
-            catat_log(f"❌ Gagal mengambil screenshot: {e}")
+            catat_log(f"❌ Gagal memuat halaman untuk screenshot: {e}")
+            return None
         finally:
             await browser.close()
 
@@ -168,9 +187,9 @@ def buat_session_baru():
     s.mount("http://", adapter)
     return s
 
-def kirim_via_whatsapp(path_gambar):
-    if not os.path.exists(path_gambar):
-        catat_log("❌ File gambar tidak ditemukan, pengiriman WA dibatalkan.")
+def kirim_via_whatsapp(path_gambar, info_bagian=""):
+    if not path_gambar or not os.path.exists(path_gambar):
+        catat_log(f"❌ File gambar {info_bagian} tidak ditemukan, pengiriman WA dibatalkan.")
         return False
 
     session = buat_session_baru()
@@ -187,20 +206,30 @@ def kirim_via_whatsapp(path_gambar):
         }
 
         waktu_caption = datetime.now().strftime("%Y-%m-%d %H:%M")
+        
+        label_bagian = f"({info_bagian})" if info_bagian else ""
+        
+        if info_bagian == "Part 2":
+            judul_utama = "Monitor Tiket Open TTR 6 JAM"
+        else:
+            judul_utama = "Monitor Tiket Open TTR 3 JAM"
+
         caption_baru = (
-            f"📊 *Monitor Tiket Open TTR 3 JAM*\n"
+            f"📊 *{judul_utama}*\n"
             f"📝 Created by FBB.SBT\n"
             f"Tanggal: {waktu_caption}"
         )
+        
+        nama_file_asli = os.path.basename(path_gambar)
 
         for group_id in GROUP_ID_TUJUAN:
-            catat_log(f"🚀 Mengirim gambar ke WhatsApp: {group_id}...")
+            catat_log(f"🚀 Mengirim {info_bagian} ke WhatsApp: {group_id}...")
             payload = {
                 "session": WAHA_SESSION,
                 "chatId": group_id,
                 "file": {
                     "mimetype": "image/png",
-                    "filename": f"Report_Insera_{tanggal_hari_ini()}.png",
+                    "filename": nama_file_asli,
                     "data": encoded_string
                 },
                 "caption": caption_baru
@@ -209,11 +238,11 @@ def kirim_via_whatsapp(path_gambar):
             try:
                 response = session.post(url, headers=headers, json=payload, timeout=60)
                 if response.status_code in [200, 201]:
-                    catat_log(f"✅ Berhasil dikirim ke WhatsApp ({group_id})!")
+                    catat_log(f"✅ {info_bagian} berhasil dikirim ke WhatsApp ({group_id})!")
                 else:
-                    catat_log(f"❌ Gagal mengirim ke {group_id}. Status: {response.status_code}")
+                    catat_log(f"❌ Gagal mengirim {info_bagian} ke {group_id}. Status: {response.status_code}")
             except Exception as e:
-                catat_log(f"⚠️ Koneksi terputus ke {group_id}: {e}")
+                catat_log(f"⚠️ Koneksi terputus ke {group_id} saat mengirim {info_bagian}: {e}")
             
     except Exception as e:
         catat_log(f"❌ Error keseluruhan saat mengirim via WhatsApp: {e}")
@@ -221,7 +250,7 @@ def kirim_via_whatsapp(path_gambar):
         session.close()
 
 # ==========================================
-# 6. LOGIK UTAMA BOT (TELEGRAM)
+# 6. LOGIKA UTAMA BOT (TELEGRAM)
 # ==========================================
 @client.on(events.NewMessage(chats=ID_GRUP_TARGET))
 async def proses_dokumen_baru(event):
@@ -267,12 +296,27 @@ async def proses_dokumen_baru(event):
                     catat_log("⏳ Menunggu 15 detik agar Google Sheets web ter-refresh...")
                     await asyncio.sleep(15)
                     
-                    path_ss = await ambil_screenshot()
+                    rentang_1 = "B6:AG38"
+                    rentang_2 = "B39:AG71"
                     
-                    if os.path.exists(path_ss):
-                        optimalkan_resolusi(path_ss)
-                        await asyncio.to_thread(kirim_via_whatsapp, path_ss)
-                        hapus_file(path_ss)
+                    path_ss_1 = await ambil_screenshot(rentang_1, label="Part_1")
+                    if path_ss_1:
+                        optimalkan_resolusi(path_ss_1)
+                        await asyncio.to_thread(kirim_via_whatsapp, path_ss_1, "Part 1")
+                        hapus_file(path_ss_1)
+                    else:
+                        catat_log("⚠️ Melewati pengiriman Part 1 karena gagal screenshot.")
+
+                    catat_log("⏳ Jeda 5 detik sebelum mengambil screenshot bagian ke-2...")
+                    await asyncio.sleep(5)
+
+                    path_ss_2 = await ambil_screenshot(rentang_2, label="Part_2")
+                    if path_ss_2:
+                        optimalkan_resolusi(path_ss_2)
+                        await asyncio.to_thread(kirim_via_whatsapp, path_ss_2, "Part 2") 
+                        hapus_file(path_ss_2)
+                    else:
+                        catat_log("⚠️ Melewati pengiriman Part 2 karena gagal screenshot.")
                     
                 else:
                     catat_log("⚠️ Proses selesai. Namun tidak ada data yang masuk kriteria (Cabang tidak ditemukan).")
