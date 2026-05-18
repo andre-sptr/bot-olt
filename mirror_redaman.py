@@ -3,6 +3,7 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import os
 import math
+import re
 from datetime import datetime
 
 # ==========================================
@@ -102,9 +103,13 @@ async def proses_laporan_rx(event):
                                 interface = parts[2].strip()
                                 deskripsi = parts[3].strip()
                                 rx_raw = parts[5].strip()
-                                
+                                rx_clean = re.sub(r'[^\d.\-]', '', rx_raw)
+
                                 sto = hostname.split('-')[2] if '-' in hostname else "-"
-                                rx_val = math.trunc(float(rx_raw) / 1000)
+                                rx_float = float(rx_clean)
+                                while abs(rx_float) > 100:
+                                    rx_float /= 1000
+                                rx_val = math.trunc(rx_float)
                                 
                                 no_urut_terakhir += 1
                                 baris_saat_ini = baris_mulai_input + len(data_baru)
