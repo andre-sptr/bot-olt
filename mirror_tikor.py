@@ -25,6 +25,13 @@ SPREADSHEETS = [
         'kolom_tikor': 61,  # Kolom BJ (index 61)
         'kolom_hasil': 62,  # Kolom BK (index 62)
     },
+    {
+        'nama': 'Spreadsheet C',
+        'url': 'https://docs.google.com/spreadsheets/d/1vZCjlRFMlrgoPl7Fl44dnoAOY_JxZ9N58e37py1PoLI/edit',
+        'gid': 213178140,
+        'kolom_tikor': 29,  # Kolom AD (index 29)
+        'kolom_hasil': 30,  # Kolom AE (index 30)
+    },
 ]
 
 lock_bot = asyncio.Lock()
@@ -135,7 +142,7 @@ async def proses_check_tikor(client, sheet_cfg):
 async def main():
     client = TelegramClient('sesi_mirror_tikor', API_ID, API_HASH)
     await client.start()
-    print("🤖 Bot Pemantau Aktif! (2 Spreadsheets)")
+    print("🤖 Bot Pemantau Aktif! (3 Spreadsheets)")
 
     sheets = setup_google_sheets()
     interval = INTERVAL_MIN
