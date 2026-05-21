@@ -3,6 +3,7 @@ import os
 import requests
 import base64
 from datetime import datetime
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from playwright.async_api import async_playwright
 from PIL import Image
 
@@ -20,6 +21,12 @@ FOLDER_GAMBAR = "images"
 FOLDER_LOG = "logs"
 os.makedirs(FOLDER_GAMBAR, exist_ok=True)
 os.makedirs(FOLDER_LOG, exist_ok=True)
+
+MAX_RETRY_SCREENSHOT = 3
+NAVIGATION_TIMEOUT_MS = 90000
+SELECTOR_TIMEOUT_MS = 60000
+SCREENSHOT_TIMEOUT_MS = 60000
+RETRY_DELAY_MS = 10000
 # =================================================
 
 
@@ -75,6 +82,21 @@ def nama_file_log():
     return os.path.join(FOLDER_LOG, "ytd_log.txt")
 
 
+def buat_url_screenshot():
+    """Membuat URL embed Google Sheet untuk area yang akan di-screenshot."""
+    base_url = URL_SPREADSHEET.split("/edit", 1)[0]
+    return (
+        f"{base_url}/htmlembed"
+        f"?gid={GID_SHEET}&range={RENTANG_CELL}"
+        "&widget=false&headers=false&chrome=false"
+    )
+
+
+def ringkas_error(error):
+    """Ambil baris utama error agar log retry tetap mudah dibaca."""
+    return str(error).splitlines()[0]
+
+
 def catat_log(pesan):
     """Mencatat log dengan fitur auto-reset jika masuk hari baru."""
     waktu = datetime.now().strftime("%H:%M:%S")
@@ -111,40 +133,101 @@ def optimalkan_resolusi(path_gambar):
         catat_log(f"Gagal mengoptimalkan resolusi: {e}")
 
 
+async def simpan_debug_halaman(page, percobaan, error):
+    """Simpan kondisi halaman saat gagal agar penyebab timeout bisa dilihat."""
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    nama_dasar = os.path.join(FOLDER_LOG, f"ytd_debug_{timestamp}_try{percobaan}")
+    path_html = f"{nama_dasar}.html"
+    path_png = f"{nama_dasar}.png"
+
+    try:
+        html = await page.content()
+        with open(path_html, "w", encoding="utf-8") as f:
+            f.write(html)
+
+        try:
+            await page.screenshot(path=path_png, full_page=True, timeout=15000)
+            catat_log(f"Debug halaman tersimpan: {path_html} dan {path_png}")
+        except Exception as e_screenshot:
+            catat_log(f"Debug HTML tersimpan: {path_html}")
+            catat_log(f"Gagal menyimpan screenshot debug: {ringkas_error(e_screenshot)}")
+    except Exception as e_debug:
+        catat_log(
+            "Gagal menyimpan debug halaman "
+            f"setelah error '{ringkas_error(error)}': {ringkas_error(e_debug)}"
+        )
+
+
 async def ambil_screenshot():
-    """Mengambil screenshot dari area spesifik di Google Spreadsheet."""
+    """Mengambil screenshot dari area Google Sheet dengan retry dan debug log."""
     path_ss = nama_file_ss()
-    
-    if os.path.exists(path_ss):
+
+    if path_ss and os.path.exists(path_ss):
         os.remove(path_ss)
-        
+
+    target_url = buat_url_screenshot()
     catat_log(f"Mulai mengambil screenshot area {RENTANG_CELL} pada: {tanggal_hari_ini()}")
+    catat_log(f"URL screenshot: {target_url}")
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context(viewport={"width": 3000, "height": 1500})
-        page = await context.new_page()
-
-        target_url = URL_SPREADSHEET.replace(
-            "/edit?usp=sharing",
-            f"/htmlembed?gid={GID_SHEET}&range={RENTANG_CELL}&widget=false&headers=false&chrome=false"
-        )
 
         try:
-            await page.goto(target_url, wait_until="load", timeout=90000)
-            
-            await page.wait_for_selector("table.waffle:visible", timeout=60000)
-            await page.wait_for_timeout(3000) 
+            for percobaan in range(1, MAX_RETRY_SCREENSHOT + 1):
+                page = await context.new_page()
+                try:
+                    catat_log(
+                        f"Percobaan screenshot {percobaan}/{MAX_RETRY_SCREENSHOT}: "
+                        "membuka Google Sheets..."
+                    )
+                    response = await page.goto(
+                        target_url,
+                        wait_until="domcontentloaded",
+                        timeout=NAVIGATION_TIMEOUT_MS,
+                    )
+                    if response:
+                        catat_log(f"Status halaman Google Sheets: HTTP {response.status}")
 
-            tabel_sheet = page.locator("table.waffle:visible").first
-            await tabel_sheet.screenshot(path=path_ss)
+                    await page.wait_for_selector(
+                        "table.waffle:visible",
+                        timeout=SELECTOR_TIMEOUT_MS,
+                    )
+                    await page.wait_for_timeout(3000)
 
-        except Exception as e:
-            catat_log(f"❌ Gagal mengambil screenshot: {e}")
+                    tabel_sheet = page.locator("table.waffle:visible").first
+                    await tabel_sheet.screenshot(
+                        path=path_ss,
+                        timeout=SCREENSHOT_TIMEOUT_MS,
+                    )
+                    catat_log("Screenshot YtD berhasil diambil.")
+                    return path_ss
+
+                except PlaywrightTimeoutError as e:
+                    catat_log(
+                        f"Timeout screenshot pada percobaan {percobaan}/"
+                        f"{MAX_RETRY_SCREENSHOT}: {ringkas_error(e)}"
+                    )
+                    if percobaan == MAX_RETRY_SCREENSHOT:
+                        await simpan_debug_halaman(page, percobaan, e)
+                except Exception as e:
+                    catat_log(
+                        f"Gagal screenshot pada percobaan {percobaan}/"
+                        f"{MAX_RETRY_SCREENSHOT}: {ringkas_error(e)}"
+                    )
+                    if percobaan == MAX_RETRY_SCREENSHOT:
+                        await simpan_debug_halaman(page, percobaan, e)
+                finally:
+                    await page.close()
+
+                if percobaan < MAX_RETRY_SCREENSHOT:
+                    catat_log(f"Menunggu {RETRY_DELAY_MS // 1000} detik sebelum retry...")
+                    await asyncio.sleep(RETRY_DELAY_MS / 1000)
         finally:
             await browser.close()
 
-    return path_ss
+    catat_log("Gagal mengambil screenshot YtD setelah semua percobaan.")
+    return None
 
 
 def buat_session_baru():
@@ -228,7 +311,7 @@ def tugas_harian():
 
     path_ss = asyncio.run(ambil_screenshot())
 
-    if os.path.exists(path_ss):
+    if path_ss and os.path.exists(path_ss):
         optimalkan_resolusi(path_ss)
         
         kirim_via_whatsapp(path_ss)
