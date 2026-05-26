@@ -95,9 +95,11 @@ def ekstrak_data_bot(teks_respon):
 
         match_rx = re.search(r'Feasible Expand[^\d-]*(-?\d+\.\d+)\s*dBm', blok, re.IGNORECASE)
         rx_val = float(match_rx.group(1)) if match_rx else -99.99
+        match_core = re.search(r'Core_Idle:\s*(\d+)', blok, re.IGNORECASE)
+        core_idle = match_core.group(1) if match_core else "0"
 
         potensi = " (Potensi Expand)" if rx_val > -19.0 else ""
-        hasil_odp.append(f"{nama_odp} - {jarak} m - {port_idle} idle - ({rx_val} dBm){potensi}")
+        hasil_odp.append(f"{nama_odp} - {jarak} m - {port_idle} idle - Core_Idle: {core_idle} - ({rx_val} dBm){potensi}")
 
     return " | ".join(hasil_odp)
 
