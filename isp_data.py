@@ -16,8 +16,14 @@ ID_GRUP_PKU = -1001481602761
 ID_GRUP_PDG = -1001281180665
 ID_GRUP_BKT = -1003652501250
 ID_GRUP_TESTING = -4883113309
+ID_GRUP_NE_AKSES = -172352509
 
 daftar_grup_target = [ID_GRUP_DUM]
+grup_riwayat_target = [ID_GRUP_DUM, ID_GRUP_NE_AKSES]
+scan_riwayat_target = [
+    {"chat_id": ID_GRUP_DUM, "search": "PROGRAM ZERO"},
+    {"chat_id": ID_GRUP_NE_AKSES, "search": "Recovery"},
+]
 
 # ================== KONFIGURASI GOOGLE SHEETS ==================
 FILE_KREDENSIAL = "kunci_rahasia_google.json"
@@ -32,7 +38,7 @@ HEADER = ["No", "NE Hostname", "RCA", "Durasi Down", "Tanggal", "Distrik"]
 
 # ======================================================
 
-DISTRIK_TARGET = "DUMAI"
+DISTRIK_TARGET = "Dumai"
 TAHUN_TARGET = 2026
 BULAN_TARGET = (2, 3, 4, 5)
 ZONA_WAKTU = ZoneInfo("Asia/Jakarta")
@@ -58,6 +64,14 @@ class ISPRecord:
     durasi_down: str
     tanggal: str
     distrik: str
+
+
+@dataclass(frozen=True)
+class RecoveryMessage:
+    hostname: str
+    durasi_down: str
+    distrik: str
+    tanggal: str
 
 
 def tanggal_hari_ini():
@@ -154,7 +168,7 @@ def ekstrak_distrik(teks, default="UNKNOWN"):
     for baris in str(teks or "").splitlines():
         nilai = ekstrak_setelah_label(baris, ["DISTRICT", "DISTRIK"])
         if nilai:
-            return nilai.upper()
+            return nilai.title()
     return default
 
 
@@ -173,6 +187,19 @@ def ekstrak_hostname_dari_baris(baris):
         if "GPON" in part.upper():
             return normalisasi_hostname(part)
     return ""
+
+
+def infer_rca(teks_pesan, hostname, rca_fallback="Kable CUT"):
+    rca_label = ekstrak_label_pesan(teks_pesan, ["RCA", "ROOT CAUSE", "PENYEBAB"])
+    if rca_label:
+        return rca_label
+
+    hostname_upper = hostname.upper()
+    hostname_pln = hostname_upper.replace("GPON", "PLN", 1)
+    if hostname_pln != hostname_upper and hostname_pln in str(teks_pesan or "").upper():
+        return "PLN"
+
+    return rca_fallback
 
 
 def parse_down_message(teks_pesan, now=None, default_distrik="UNKNOWN"):
@@ -236,6 +263,9 @@ def parse_down_message(teks_pesan, now=None, default_distrik="UNKNOWN"):
             if not rca and not sudah_melihat_durasi_di_baris:
                 rca = field
 
+        if not rca:
+            rca = infer_rca(teks_pesan, hostname)
+
         records.append(
             ISPRecord(
                 hostname=hostname,
@@ -247,6 +277,40 @@ def parse_down_message(teks_pesan, now=None, default_distrik="UNKNOWN"):
         )
 
     return records
+
+
+def parse_recovery_message(teks_pesan):
+    teks_pesan = str(teks_pesan or "")
+    teks_upper = teks_pesan.upper()
+    if "RECOVERY" not in teks_upper:
+        return None
+
+    hostname = ""
+    durasi_down = ""
+    distrik = ""
+    tanggal = ""
+
+    for baris in teks_pesan.splitlines():
+        baris = baris.strip()
+        if re.match(r"(?i)^Node ID\s*:", baris):
+            hostname = normalisasi_hostname(baris.split(":", 1)[1])
+        elif re.match(r"(?i)^(Down Duration|Flicker Duration|Durasi Down)\s*:", baris):
+            durasi_down = bersihkan_field(baris.split(":", 1)[1])
+        elif re.match(r"(?i)^(District|Distrik)\s*:", baris):
+            distrik = bersihkan_field(baris.split(":", 1)[1]).title()
+        elif re.match(r"(?i)^(Recovered At|Timestamp)\s*:", baris):
+            if not tanggal:
+                tanggal = normalisasi_tanggal(baris.split(":", 1)[1])
+
+    if not hostname:
+        return None
+
+    return RecoveryMessage(
+        hostname=hostname,
+        durasi_down=durasi_down,
+        distrik=distrik,
+        tanggal=tanggal,
+    )
 
 
 def parse_up_hostnames(teks_pesan):
@@ -293,6 +357,7 @@ def kumpulkan_records_dari_messages(
     distrik_target=DISTRIK_TARGET,
 ):
     hasil = []
+    down_aktif = {}
     pesan_urut = sorted(
         messages,
         key=lambda msg: (
@@ -309,20 +374,60 @@ def kumpulkan_records_dari_messages(
             continue
 
         teks_pesan = getattr(message, "text", None) or getattr(message, "message", "") or ""
-        if "!PROGRAM ZERO GAMAS OLT!" not in teks_pesan.upper():
+        tanggal_sheet = tanggal_lokal.strftime("%d-%m-%Y")
+        teks_upper = teks_pesan.upper()
+
+        if "!PROGRAM ZERO GAMAS OLT!" in teks_upper:
+            records = parse_down_message(
+                teks_pesan,
+                now=tanggal_lokal,
+                default_distrik=distrik_target,
+            )
+
+            for record in records:
+                if record.distrik.upper() != distrik_target.upper():
+                    continue
+                key_hostname = record.hostname.upper()
+                existing_record = down_aktif.get(key_hostname)
+                if existing_record and existing_record.rca == "PLN" and record.rca == "Kable CUT":
+                    continue
+
+                down_aktif[key_hostname] = replace(
+                    record,
+                    tanggal=tanggal_sheet,
+                    distrik=distrik_target,
+                )
             continue
 
-        tanggal_sheet = tanggal_lokal.strftime("%d-%m-%Y")
-        records = parse_down_message(
-            teks_pesan,
-            now=tanggal_lokal,
-            default_distrik=distrik_target,
-        )
+        if "| UP" in teks_upper:
+            continue
 
-        for record in records:
-            if record.distrik.upper() != distrik_target.upper():
-                continue
-            hasil.append(replace(record, tanggal=tanggal_sheet, distrik=distrik_target.upper()))
+        recovery = parse_recovery_message(teks_pesan)
+        if recovery is None:
+            continue
+
+        down_record = down_aktif.pop(recovery.hostname.upper(), None)
+        distrik_recovery = recovery.distrik or (down_record.distrik if down_record else "")
+        if distrik_recovery.upper() != distrik_target.upper():
+            continue
+
+        if not recovery.durasi_down:
+            continue
+
+        if down_record is None:
+            rca = infer_rca(teks_pesan, recovery.hostname)
+        else:
+            rca = down_record.rca or infer_rca(teks_pesan, recovery.hostname)
+
+        hasil.append(
+            ISPRecord(
+                hostname=recovery.hostname,
+                rca=rca,
+                durasi_down=recovery.durasi_down,
+                tanggal=recovery.tanggal or tanggal_sheet,
+                distrik=distrik_target,
+            )
+        )
 
     return hasil
 
@@ -419,29 +524,40 @@ def buat_telegram_client():
 
 async def scan_riwayat_chat(
     client,
-    chat_id=ID_GRUP_DUM,
+    scan_targets=None,
     tahun=TAHUN_TARGET,
     bulan_target=BULAN_TARGET,
 ):
+    if scan_targets is None:
+        scan_targets = scan_riwayat_target
+
     messages = []
     jumlah_dipindai = 0
 
     simpan_log(
-        f"Scan riwayat grup {chat_id} untuk bulan {', '.join(map(str, bulan_target))} {tahun}..."
+        f"Scan riwayat grup {', '.join(str(target['chat_id']) for target in scan_targets)} "
+        f"untuk bulan {', '.join(map(str, bulan_target))} {tahun}..."
     )
 
-    async for message in client.iter_messages(chat_id):
-        tanggal_lokal = tanggal_message_lokal(getattr(message, "date", None))
-        if tanggal_lokal is None:
-            continue
+    for target in scan_targets:
+        chat_id = target["chat_id"]
+        search = target.get("search")
+        jumlah_chat = 0
+        async for message in client.iter_messages(chat_id, search=search):
+            tanggal_lokal = tanggal_message_lokal(getattr(message, "date", None))
+            if tanggal_lokal is None:
+                continue
 
-        if sebelum_rentang_target(tanggal_lokal, tahun=tahun, bulan_target=bulan_target):
-            break
+            if sebelum_rentang_target(tanggal_lokal, tahun=tahun, bulan_target=bulan_target):
+                break
 
-        jumlah_dipindai += 1
+            jumlah_dipindai += 1
+            jumlah_chat += 1
 
-        if dalam_bulan_target(tanggal_lokal, tahun=tahun, bulan_target=bulan_target):
-            messages.append(message)
+            if dalam_bulan_target(tanggal_lokal, tahun=tahun, bulan_target=bulan_target):
+                messages.append(message)
+
+        simpan_log(f"Grup {chat_id} (search={search}): {jumlah_chat} pesan discan")
 
     simpan_log(f"Total pesan dalam rentang diproses: {len(messages)} dari {jumlah_dipindai} pesan discan")
     return kumpulkan_records_dari_messages(messages, tahun=tahun, bulan_target=bulan_target)
