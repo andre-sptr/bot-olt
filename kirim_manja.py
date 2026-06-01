@@ -1,10 +1,8 @@
 import hashlib
 import json
 import os
-import time
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Callable
 
 try:
     import gspread
@@ -41,7 +39,6 @@ GRUP_INTI = "ISI_GROUP_INTI@g.us"
 TARGET_DISTRIK = list(DISTRIK_GRUP.keys())
 
 FOLDER_LOG = "logs"
-os.makedirs(FOLDER_LOG, exist_ok=True)
 
 
 TABLE_CONFIGS = {
@@ -105,6 +102,7 @@ def catat_log(pesan):
     pesan_log = f"[{waktu}] {pesan}"
     print(pesan_log)
 
+    os.makedirs(FOLDER_LOG, exist_ok=True)
     file_log = nama_file_log()
     mode = "a"
     if os.path.exists(file_log):
@@ -120,8 +118,15 @@ def catat_log(pesan):
 
 
 def kolom_ke_indeks(huruf):
+    if not isinstance(huruf, str):
+        raise ValueError(f"Kolom tidak valid: {huruf!r}")
+
+    label = huruf.strip().upper()
+    if not label or any(karakter < "A" or karakter > "Z" for karakter in label):
+        raise ValueError(f"Kolom tidak valid: {huruf!r}")
+
     hasil = 0
-    for karakter in huruf.strip().upper():
+    for karakter in label:
         hasil = hasil * 26 + (ord(karakter) - ord("A") + 1)
     return hasil - 1
 
