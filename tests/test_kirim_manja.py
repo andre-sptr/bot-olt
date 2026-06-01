@@ -222,3 +222,42 @@ def test_proses_target_does_not_update_snapshot_when_send_fails():
 
     assert changed is False
     assert snapshot == {}
+
+
+def test_proses_siklus_routes_per_district_and_jam72_to_inti(monkeypatch):
+    sent = []
+
+    class FakeWorksheet:
+        def get_all_values(self):
+            return make_sheet_values()
+
+    def fake_buka_worksheet():
+        return FakeWorksheet()
+
+    def fake_send(chat_id, text):
+        sent.append((chat_id, text))
+        return True
+
+    logs = []
+
+    monkeypatch.setattr(km, "buka_worksheet", fake_buka_worksheet)
+    monkeypatch.setattr(km, "kirim_teks_wa", fake_send)
+    monkeypatch.setattr(km, "catat_log", lambda pesan: logs.append(pesan))
+
+    snapshot = {}
+    changed = km.proses_siklus(snapshot)
+
+    assert changed is True
+    assert any(chat_id == "ISI_GROUP_BATAM@g.us" and text.startswith("Alarm 3 Jam Manja Open | Batam") for chat_id, text in sent)
+    assert any(chat_id == "ISI_GROUP_BUKITTINGGI@g.us" and text.startswith("Alarm 3 Jam Manja Open | Bukittinggi") for chat_id, text in sent)
+    assert any(chat_id == "ISI_GROUP_PEKANBARU@g.us" and text.startswith("Alarm 3 Jam Diamond | Pekanbaru") for chat_id, text in sent)
+    assert any(chat_id == "ISI_GROUP_DUMAI@g.us" and text.startswith("Alarm 6 Jam Platinum | Dumai") for chat_id, text in sent)
+    assert any(chat_id == "ISI_GROUP_PADANG@g.us" and text.startswith("Alarm 72 Jam Tiket Open | Padang") for chat_id, text in sent)
+    assert any(chat_id == "ISI_GROUP_INTI@g.us" and text.startswith("Alarm 72 Jam Tiket Open\n") for chat_id, text in sent)
+    assert any("dilewati" in pesan for pesan in logs)
+
+    sent.clear()
+    changed_again = km.proses_siklus(snapshot)
+
+    assert changed_again is False
+    assert sent == []

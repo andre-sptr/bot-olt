@@ -216,3 +216,100 @@ def proses_target(snapshot, snapshot_key, chat_id, cfg, suffix, rows, send_func)
         return True
 
     return False
+
+
+def buka_worksheet():
+    missing = []
+    if gspread is None:
+        missing.append("gspread")
+    if ServiceAccountCredentials is None:
+        missing.append("oauth2client.service_account.ServiceAccountCredentials")
+    if missing:
+        pesan = "Dependency Google Sheet belum tersedia: " + ", ".join(missing)
+        catat_log(pesan)
+        raise RuntimeError(pesan)
+
+    scope = [
+        "https://spreadsheets.google.com/feeds",
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive.file",
+        "https://www.googleapis.com/auth/drive",
+    ]
+    creds = ServiceAccountCredentials.from_json_keyfile_name(FILE_KREDENSIAL, scope)
+    client_gs = gspread.authorize(creds)
+    spreadsheet = client_gs.open_by_key(SPREADSHEET_ID)
+    return spreadsheet.get_worksheet_by_id(GID_SHEET)
+
+
+def kirim_teks_wa(chat_id, teks):
+    if requests is None:
+        catat_log("Dependency WAHA belum tersedia: requests")
+        return False
+
+    url = f"{WAHA_URL.rstrip('/')}/api/sendText"
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "X-Api-Key": WAHA_API_KEY,
+        "Connection": "close",
+    }
+    payload = {
+        "session": WAHA_SESSION,
+        "chatId": chat_id,
+        "text": teks,
+    }
+
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=30)
+        if response.status_code in [200, 201]:
+            catat_log(f"Berhasil mengirim ke WhatsApp: {chat_id}")
+            return True
+        catat_log(f"Gagal mengirim ke {chat_id}. Status: {response.status_code}, Response: {response.text}")
+    except Exception as exc:
+        catat_log(f"Error saat mengirim ke WAHA ({chat_id}): {exc}")
+
+    return False
+
+
+def proses_siklus(snapshot):
+    worksheet = buka_worksheet()
+    semua_nilai = worksheet.get_all_values()
+    ada_perubahan = False
+
+    for cfg in TABLE_CONFIGS.values():
+        table_data = ekstrak_table(cfg, semua_nilai)
+
+        for row_number, distrik_asli, display_row in table_data.skipped:
+            catat_log(
+                f"Baris {row_number} table {cfg['key']} dilewati untuk per-distrik: "
+                f"DISTRIK='{distrik_asli}', DATA={display_row}"
+            )
+
+        for distrik_norm in TARGET_DISTRIK:
+            rows = table_data.by_district[distrik_norm]
+            suffix = nama_distrik_tampil(distrik_norm)
+            chat_id = DISTRIK_GRUP[distrik_norm]
+            sent = proses_target(
+                snapshot,
+                (cfg["key"], distrik_norm),
+                chat_id,
+                cfg,
+                suffix,
+                rows,
+                kirim_teks_wa,
+            )
+            ada_perubahan = ada_perubahan or sent
+
+        if cfg.get("send_inti"):
+            sent = proses_target(
+                snapshot,
+                (cfg["key"], "__INTI__"),
+                GRUP_INTI,
+                cfg,
+                "",
+                table_data.all_rows,
+                kirim_teks_wa,
+            )
+            ada_perubahan = ada_perubahan or sent
+
+    return ada_perubahan
