@@ -197,3 +197,22 @@ def buat_pesan_clear(cfg, judul_suffix):
 def hash_rows(rows):
     payload = json.dumps(rows, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.md5(payload.encode("utf-8")).hexdigest()
+
+
+def proses_target(snapshot, snapshot_key, chat_id, cfg, suffix, rows, send_func):
+    rows_hash = hash_rows(rows)
+    previous_hash = snapshot.get(snapshot_key)
+
+    if previous_hash == rows_hash:
+        return False
+
+    if previous_hash is None and not rows:
+        snapshot[snapshot_key] = rows_hash
+        return False
+
+    pesan = buat_pesan_data(cfg, suffix, rows) if rows else buat_pesan_clear(cfg, suffix)
+    if send_func(chat_id, pesan):
+        snapshot[snapshot_key] = rows_hash
+        return True
+
+    return False

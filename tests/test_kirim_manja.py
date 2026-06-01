@@ -97,3 +97,128 @@ def test_jam72_keeps_all_rows_for_inti_even_when_district_is_unknown():
     assert data.skipped == [
         (6, "Other", ["INC-72-OTHER", "80", "OTH", "Other"])
     ]
+
+
+def test_buat_pesan_data_uses_expected_manja_format():
+    text = km.buat_pesan_data(
+        km.TABLE_CONFIGS["MANJA"],
+        "Batam",
+        [["INC49847623", "2026-06-01 15:00:00.0", "SLU", "SA SAGULUNG"]],
+    )
+
+    assert text == "\n".join([
+        "Alarm 3 Jam Manja Open | Batam",
+        "==============",
+        "Tiket | Jam Booking | STO | SA",
+        "INC49847623 | 2026-06-01 15:00:00.0 | SLU | SA SAGULUNG",
+    ])
+
+
+def test_buat_pesan_clear_uses_expected_format():
+    text = km.buat_pesan_clear(km.TABLE_CONFIGS["JAM72"], "")
+
+    assert text == "\n".join([
+        "Alarm 72 Jam Tiket Open",
+        "==============",
+        "CLEAR - Tidak ada tiket aktif.",
+    ])
+
+
+def test_proses_target_sends_first_run_data_and_skips_unchanged_rows():
+    sent = []
+
+    def fake_send(chat_id, text):
+        sent.append((chat_id, text))
+        return True
+
+    snapshot = {}
+    rows = [["INC49847623", "1", "SLU", "SA SAGULUNG"]]
+
+    changed = km.proses_target(
+        snapshot,
+        ("DIAMOND", "BATAM"),
+        "group-batam@g.us",
+        km.TABLE_CONFIGS["DIAMOND"],
+        "Batam",
+        rows,
+        fake_send,
+    )
+
+    assert changed is True
+    assert len(sent) == 1
+    assert sent[0][0] == "group-batam@g.us"
+    assert sent[0][1].splitlines()[0] == "Alarm 3 Jam Diamond | Batam"
+
+    changed_again = km.proses_target(
+        snapshot,
+        ("DIAMOND", "BATAM"),
+        "group-batam@g.us",
+        km.TABLE_CONFIGS["DIAMOND"],
+        "Batam",
+        rows,
+        fake_send,
+    )
+
+    assert changed_again is False
+    assert len(sent) == 1
+
+
+def test_proses_target_sends_clear_when_existing_rows_become_empty():
+    sent = []
+
+    def fake_send(chat_id, text):
+        sent.append((chat_id, text))
+        return True
+
+    snapshot = {}
+    rows = [["INC49847623", "1", "SLU", "SA SAGULUNG"]]
+
+    km.proses_target(
+        snapshot,
+        ("PLATINUM", "DUMAI"),
+        "group-dumai@g.us",
+        km.TABLE_CONFIGS["PLATINUM"],
+        "Dumai",
+        rows,
+        fake_send,
+    )
+    changed = km.proses_target(
+        snapshot,
+        ("PLATINUM", "DUMAI"),
+        "group-dumai@g.us",
+        km.TABLE_CONFIGS["PLATINUM"],
+        "Dumai",
+        [],
+        fake_send,
+    )
+
+    assert changed is True
+    assert sent[-1] == (
+        "group-dumai@g.us",
+        "\n".join([
+            "Alarm 6 Jam Platinum | Dumai",
+            "==============",
+            "CLEAR - Tidak ada tiket aktif.",
+        ]),
+    )
+
+
+def test_proses_target_does_not_update_snapshot_when_send_fails():
+    def failing_send(chat_id, text):
+        return False
+
+    snapshot = {}
+    rows = [["INC49847623", "1", "SLU", "SA SAGULUNG"]]
+
+    changed = km.proses_target(
+        snapshot,
+        ("DIAMOND", "BATAM"),
+        "group-batam@g.us",
+        km.TABLE_CONFIGS["DIAMOND"],
+        "Batam",
+        rows,
+        failing_send,
+    )
+
+    assert changed is False
+    assert snapshot == {}
