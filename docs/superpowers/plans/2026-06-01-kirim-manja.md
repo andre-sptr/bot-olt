@@ -220,7 +220,7 @@ FILE_KREDENSIAL = "kunci_rahasia_google.json"
 
 WAHA_URL = "https://waha-dutxvo095iqn.cgk-lab.sumopod.my.id"
 WAHA_SESSION = "OLTReport"
-WAHA_API_KEY = "ROpWNPkTUavqEbnz5zKU4mTiL0HIZoye"
+WAHA_API_KEY = "ISI_WAHA_API_KEY_SESUAI_MIRROR_INSERA"
 
 DISTRIK_GRUP = {
     "BATAM": "ISI_GROUP_BATAM@g.us",

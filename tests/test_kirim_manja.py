@@ -295,4 +295,5 @@ def test_main_polls_once_and_sleeps_with_reset_interval(monkeypatch):
     assert logs == [
         "Program Kirim Manja aktif. Memulai polling Google Sheet.",
         "Perubahan terkirim. Interval polling kembali ke 30 detik.",
+        "Program dihentikan oleh pengguna.",
     ]

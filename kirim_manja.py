@@ -325,20 +325,21 @@ def main():
 
     while True:
         try:
-            ada_perubahan = proses_siklus(snapshot)
-            if ada_perubahan:
-                interval = 30
-                catat_log("Perubahan terkirim. Interval polling kembali ke 30 detik.")
-            else:
-                interval = min(max_interval, int(interval * 1.5))
-                catat_log(f"Tidak ada perubahan. Polling berikutnya dalam {interval} detik.")
+            try:
+                ada_perubahan = proses_siklus(snapshot)
+                if ada_perubahan:
+                    interval = 30
+                    catat_log("Perubahan terkirim. Interval polling kembali ke 30 detik.")
+                else:
+                    interval = min(max_interval, int(interval * 1.5))
+                    catat_log(f"Tidak ada perubahan. Polling berikutnya dalam {interval} detik.")
+            except Exception as exc:
+                catat_log(f"Error dalam siklus utama: {exc}")
+
+            time.sleep(interval)
         except KeyboardInterrupt:
             catat_log("Program dihentikan oleh pengguna.")
             raise
-        except Exception as exc:
-            catat_log(f"Error dalam siklus utama: {exc}")
-
-        time.sleep(interval)
 
 
 if __name__ == "__main__":
