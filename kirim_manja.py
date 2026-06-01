@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+import time
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -313,3 +314,32 @@ def proses_siklus(snapshot):
             ada_perubahan = ada_perubahan or sent
 
     return ada_perubahan
+
+
+def main():
+    snapshot = {}
+    interval = 30
+    max_interval = 300
+
+    catat_log("Program Kirim Manja aktif. Memulai polling Google Sheet.")
+
+    while True:
+        try:
+            ada_perubahan = proses_siklus(snapshot)
+            if ada_perubahan:
+                interval = 30
+                catat_log("Perubahan terkirim. Interval polling kembali ke 30 detik.")
+            else:
+                interval = min(max_interval, int(interval * 1.5))
+                catat_log(f"Tidak ada perubahan. Polling berikutnya dalam {interval} detik.")
+        except KeyboardInterrupt:
+            catat_log("Program dihentikan oleh pengguna.")
+            raise
+        except Exception as exc:
+            catat_log(f"Error dalam siklus utama: {exc}")
+
+        time.sleep(interval)
+
+
+if __name__ == "__main__":
+    main()

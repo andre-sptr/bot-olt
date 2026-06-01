@@ -248,6 +248,8 @@ def test_proses_siklus_routes_per_district_and_jam72_to_inti(monkeypatch):
     changed = km.proses_siklus(snapshot)
 
     assert changed is True
+    assert len(sent) == 6
+    assert all("CLEAR" not in text for _, text in sent)
     assert any(chat_id == "ISI_GROUP_BATAM@g.us" and text.startswith("Alarm 3 Jam Manja Open | Batam") for chat_id, text in sent)
     assert any(chat_id == "ISI_GROUP_BUKITTINGGI@g.us" and text.startswith("Alarm 3 Jam Manja Open | Bukittinggi") for chat_id, text in sent)
     assert any(chat_id == "ISI_GROUP_PEKANBARU@g.us" and text.startswith("Alarm 3 Jam Diamond | Pekanbaru") for chat_id, text in sent)
@@ -261,3 +263,36 @@ def test_proses_siklus_routes_per_district_and_jam72_to_inti(monkeypatch):
 
     assert changed_again is False
     assert sent == []
+
+
+def test_main_polls_once_and_sleeps_with_reset_interval(monkeypatch):
+    logs = []
+    calls = []
+    sleeps = []
+
+    def fake_proses_siklus(snapshot):
+        calls.append(dict(snapshot))
+        snapshot["seen"] = True
+        return True
+
+    def fake_sleep(interval):
+        sleeps.append(interval)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(km, "proses_siklus", fake_proses_siklus)
+    monkeypatch.setattr(km, "catat_log", lambda pesan: logs.append(pesan))
+    monkeypatch.setattr(km.time, "sleep", fake_sleep)
+
+    try:
+        km.main()
+    except KeyboardInterrupt:
+        pass
+    else:
+        raise AssertionError("main() should stop when sleep is interrupted")
+
+    assert calls == [{}]
+    assert sleeps == [30]
+    assert logs == [
+        "Program Kirim Manja aktif. Memulai polling Google Sheet.",
+        "Perubahan terkirim. Interval polling kembali ke 30 detik.",
+    ]
