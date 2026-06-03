@@ -43,10 +43,10 @@ SUFFIX_INTI = "SBT"
 # Nomor PIC per distrik untuk di-mention di pesan grup inti.
 # Disimpan apa adanya; dinormalisasi ke format "62..." oleh normalisasi_nomor().
 RAW_PIC_DISTRIK = {
-    "BATAM": ["+62 813-7683-6000", "081277200469", "+62 813-6321-0112"],
+    "BATAM": ["+62 813-7683-6000", "+62 812-7720-0469", "+62 813-6321-0112"],
     "PEKANBARU": ["+62 812-6132-3575", "+62 812-6465-895"],
     "DUMAI": ["+62 812-7556-6031", "+62 812-6465-895"],
-    "BUKITTINGGI": ["+62853 6311 8159", "+62 812-6771-5408"],
+    "BUKITTINGGI": ["+62 853-6311-8159", "+62 812-6771-5408"],
     "PADANG": ["+62 811-6393-933", "+62 822-8454-5038"],
 }
 
