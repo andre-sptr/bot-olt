@@ -38,6 +38,17 @@ DISTRIK_GRUP = {
 }
 GRUP_INTI = "120363406101184780@g.us"
 TARGET_DISTRIK = list(DISTRIK_GRUP.keys())
+SUFFIX_INTI = "SBT"
+
+# Nomor PIC per distrik untuk di-mention di pesan grup inti.
+# Disimpan apa adanya; dinormalisasi ke format "62..." oleh normalisasi_nomor().
+RAW_PIC_DISTRIK = {
+    "BATAM": ["+62 813-7683-6000", "081277200469", "+62 813-6321-0112"],
+    "PEKANBARU": ["+62 812-6132-3575", "+62 812-6465-895"],
+    "DUMAI": ["+62 812-7556-6031", "+62 812-6465-895"],
+    "BUKITTINGGI": ["+62853 6311 8159", "+62 812-6771-5408"],
+    "PADANG": ["+62 811-6393-933", "+62 822-8454-5038"],
+}
 
 FOLDER_LOG = "logs"
 
@@ -50,7 +61,9 @@ TABLE_CONFIGS = {
         "display_cols": ["B", "C", "D", "E"],
         "district_col": "F",
         "header": "Tiket | Jam Booking | STO | SA",
-        "send_inti": False,
+        "send_inti": True,
+        # Jam Booking statis, jadi seluruh kolom dipakai untuk deteksi perubahan.
+        "volatile_col_idx": None,
     },
     "DIAMOND": {
         "key": "DIAMOND",
@@ -60,6 +73,8 @@ TABLE_CONFIGS = {
         "district_col": "L",
         "header": "Tiket | Open Berjalan (Jam) | STO | SA",
         "send_inti": False,
+        # Kolom 1 = "Open Berjalan (Jam)" naik tiap recalc; jangan dipakai untuk hash.
+        "volatile_col_idx": 1,
     },
     "PLATINUM": {
         "key": "PLATINUM",
@@ -69,6 +84,7 @@ TABLE_CONFIGS = {
         "district_col": "R",
         "header": "Tiket | Open Berjalan (Jam) | STO | SA",
         "send_inti": False,
+        "volatile_col_idx": 1,
     },
     "JAM72": {
         "key": "JAM72",
@@ -78,6 +94,7 @@ TABLE_CONFIGS = {
         "district_col": "X",
         "header": "Tiket | Open Berjalan (Jam) | STO | Distrik",
         "send_inti": True,
+        "volatile_col_idx": 1,
     },
 }
 
@@ -86,6 +103,7 @@ TABLE_CONFIGS = {
 class TableData:
     by_district: dict[str, list[list[str]]]
     all_rows: list[list[str]]
+    all_rows_distrik: list[str]
     skipped: list[tuple[int, str, list[str]]]
 
 
@@ -136,6 +154,29 @@ def normalisasi_distrik(nama):
     return str(nama or "").strip().upper().replace(" ", "")
 
 
+def normalisasi_nomor(raw):
+    """Ubah nomor apa pun jadi format mention WhatsApp: digit murni "62...".
+
+    Contoh: "+62 813-7683-6000" -> "6281376836000", "081277200469" -> "6281277200469".
+    """
+    digits = "".join(karakter for karakter in str(raw or "") if karakter.isdigit())
+    if not digits:
+        return ""
+    if digits.startswith("62"):
+        return digits
+    if digits.startswith("0"):
+        return "62" + digits[1:]
+    if digits.startswith("8"):
+        return "62" + digits
+    return digits
+
+
+PIC_DISTRIK = {
+    distrik: [normalisasi_nomor(nomor) for nomor in nomor_list]
+    for distrik, nomor_list in RAW_PIC_DISTRIK.items()
+}
+
+
 def nama_distrik_tampil(distrik_norm):
     mapping = {
         "BATAM": "Batam",
@@ -159,6 +200,7 @@ def nilai_cell(semua_nilai, row_idx, col_idx):
 def ekstrak_table(cfg, semua_nilai):
     by_district = {distrik: [] for distrik in TARGET_DISTRIK}
     all_rows = []
+    all_rows_distrik = []
     skipped = []
 
     start_idx = int(cfg["start_row"]) - 1
@@ -174,13 +216,19 @@ def ekstrak_table(cfg, semua_nilai):
         distrik_asli = nilai_cell(semua_nilai, row_idx, district_idx)
         distrik_norm = normalisasi_distrik(distrik_asli)
         all_rows.append(display_row)
+        all_rows_distrik.append(distrik_norm)
 
         if distrik_norm in by_district:
             by_district[distrik_norm].append(display_row)
         else:
             skipped.append((row_idx + 1, distrik_asli, display_row))
 
-    return TableData(by_district=by_district, all_rows=all_rows, skipped=skipped)
+    return TableData(
+        by_district=by_district,
+        all_rows=all_rows,
+        all_rows_distrik=all_rows_distrik,
+        skipped=skipped,
+    )
 
 
 def buat_pesan_data(cfg, judul_suffix, rows):
@@ -200,8 +248,20 @@ def hash_rows(rows):
     return hashlib.md5(payload.encode("utf-8")).hexdigest()
 
 
+def baris_identitas(cfg, rows):
+    """Buang kolom volatile (mis. "Open Berjalan (Jam)") sebelum hash.
+
+    Nilai jam berjalan naik tiap kali sheet dihitung ulang, sehingga kalau ikut
+    di-hash, pesan akan terkirim ulang terus walau set tiket tidak berubah.
+    """
+    idx = cfg.get("volatile_col_idx")
+    if idx is None:
+        return rows
+    return [[nilai for i, nilai in enumerate(row) if i != idx] for row in rows]
+
+
 def proses_target(snapshot, snapshot_key, chat_id, cfg, suffix, rows, send_func):
-    rows_hash = hash_rows(rows)
+    rows_hash = hash_rows(baris_identitas(cfg, rows))
     previous_hash = snapshot.get(snapshot_key)
 
     if previous_hash == rows_hash:
@@ -213,6 +273,89 @@ def proses_target(snapshot, snapshot_key, chat_id, cfg, suffix, rows, send_func)
 
     pesan = buat_pesan_data(cfg, suffix, rows) if rows else buat_pesan_clear(cfg, suffix)
     if send_func(chat_id, pesan):
+        snapshot[snapshot_key] = rows_hash
+        return True
+
+    return False
+
+
+def baris_cc_distrik(distrik_norm):
+    """Kembalikan (baris_cc, daftar_chat_id_mention) untuk satu distrik.
+
+    Distrik tanpa PIC (mis. di luar 5 target) menghasilkan (None, []).
+    """
+    nomor_list = PIC_DISTRIK.get(distrik_norm, [])
+    if not nomor_list:
+        return None, []
+    tokens = " ".join(f"@{nomor}" for nomor in nomor_list)
+    chat_ids = [f"{nomor}@c.us" for nomor in nomor_list]
+    return f"cc {tokens}", chat_ids
+
+
+def buat_pesan_inti(cfg, suffix, rows_with_distrik):
+    """Bangun pesan grup inti yang dikelompokkan per distrik + mention PIC.
+
+    rows_with_distrik: list of (display_row, distrik_norm).
+    Return (teks, mentions) di mana mentions adalah daftar chatId unik untuk WAHA.
+    """
+    title = cfg["title"] if not suffix else f'{cfg["title"]} | {suffix}'
+    lines = [title, "==============", cfg["header"]]
+
+    grouped = {distrik: [] for distrik in TARGET_DISTRIK}
+    unknown = []
+    for display_row, distrik_norm in rows_with_distrik:
+        if distrik_norm in grouped:
+            grouped[distrik_norm].append(display_row)
+        else:
+            unknown.append(display_row)
+
+    blocks = []
+    mentions = []
+    seen = set()
+
+    def tambah_blok(display_row, distrik_norm):
+        baris = " | ".join(display_row)
+        cc_line, chat_ids = baris_cc_distrik(distrik_norm)
+        if cc_line:
+            for chat_id in chat_ids:
+                if chat_id not in seen:
+                    seen.add(chat_id)
+                    mentions.append(chat_id)
+            blocks.append(f"{baris}\n{cc_line}")
+        else:
+            blocks.append(baris)
+
+    for distrik_norm in TARGET_DISTRIK:
+        for display_row in grouped[distrik_norm]:
+            tambah_blok(display_row, distrik_norm)
+    for display_row in unknown:
+        tambah_blok(display_row, "")
+
+    teks = "\n".join(lines) + "\n" + "\n\n".join(blocks)
+    return teks, mentions
+
+
+def proses_target_inti(snapshot, snapshot_key, chat_id, cfg, suffix, rows_with_distrik, send_func):
+    basis = [
+        baris_identitas(cfg, [display_row])[0] + [distrik_norm]
+        for display_row, distrik_norm in rows_with_distrik
+    ]
+    rows_hash = hash_rows(basis)
+    previous_hash = snapshot.get(snapshot_key)
+
+    if previous_hash == rows_hash:
+        return False
+
+    if previous_hash is None and not rows_with_distrik:
+        snapshot[snapshot_key] = rows_hash
+        return False
+
+    if rows_with_distrik:
+        teks, mentions = buat_pesan_inti(cfg, suffix, rows_with_distrik)
+    else:
+        teks, mentions = buat_pesan_clear(cfg, suffix), []
+
+    if send_func(chat_id, teks, mentions):
         snapshot[snapshot_key] = rows_hash
         return True
 
@@ -242,7 +385,7 @@ def buka_worksheet():
     return spreadsheet.get_worksheet_by_id(GID_SHEET)
 
 
-def kirim_teks_wa(chat_id, teks):
+def kirim_teks_wa(chat_id, teks, mentions=None):
     if requests is None:
         catat_log("Dependency WAHA belum tersedia: requests")
         return False
@@ -259,6 +402,8 @@ def kirim_teks_wa(chat_id, teks):
         "chatId": chat_id,
         "text": teks,
     }
+    if mentions:
+        payload["mentions"] = mentions
 
     try:
         response = requests.post(url, headers=headers, json=payload, timeout=30)
@@ -302,13 +447,14 @@ def proses_siklus(snapshot):
             ada_perubahan = ada_perubahan or sent
 
         if cfg.get("send_inti"):
-            sent = proses_target(
+            rows_with_distrik = list(zip(table_data.all_rows, table_data.all_rows_distrik))
+            sent = proses_target_inti(
                 snapshot,
                 (cfg["key"], "__INTI__"),
                 GRUP_INTI,
                 cfg,
-                "",
-                table_data.all_rows,
+                SUFFIX_INTI,
+                rows_with_distrik,
                 kirim_teks_wa,
             )
             ada_perubahan = ada_perubahan or sent

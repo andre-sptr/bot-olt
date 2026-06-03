@@ -203,6 +203,77 @@ def test_proses_target_sends_clear_when_existing_rows_become_empty():
     )
 
 
+def test_proses_target_ignores_volatile_duration_change():
+    sent = []
+
+    def fake_send(chat_id, text):
+        sent.append((chat_id, text))
+        return True
+
+    snapshot = {}
+    rows_awal = [["INC-72-PDG", "72", "PDG", "Padang"]]
+    rows_jam_naik = [["INC-72-PDG", "80", "PDG", "Padang"]]
+
+    km.proses_target(
+        snapshot,
+        ("JAM72", "__INTI__"),
+        km.GRUP_INTI,
+        km.TABLE_CONFIGS["JAM72"],
+        "",
+        rows_awal,
+        fake_send,
+    )
+    changed = km.proses_target(
+        snapshot,
+        ("JAM72", "__INTI__"),
+        km.GRUP_INTI,
+        km.TABLE_CONFIGS["JAM72"],
+        "",
+        rows_jam_naik,
+        fake_send,
+    )
+
+    assert changed is False
+    assert len(sent) == 1
+
+
+def test_proses_target_still_triggers_when_ticket_set_changes():
+    sent = []
+
+    def fake_send(chat_id, text):
+        sent.append((chat_id, text))
+        return True
+
+    snapshot = {}
+    rows_awal = [["INC-72-PDG", "72", "PDG", "Padang"]]
+    rows_tiket_baru = [
+        ["INC-72-PDG", "73", "PDG", "Padang"],
+        ["INC-72-NEW", "10", "SLU", "Padang"],
+    ]
+
+    km.proses_target(
+        snapshot,
+        ("JAM72", "__INTI__"),
+        km.GRUP_INTI,
+        km.TABLE_CONFIGS["JAM72"],
+        "",
+        rows_awal,
+        fake_send,
+    )
+    changed = km.proses_target(
+        snapshot,
+        ("JAM72", "__INTI__"),
+        km.GRUP_INTI,
+        km.TABLE_CONFIGS["JAM72"],
+        "",
+        rows_tiket_baru,
+        fake_send,
+    )
+
+    assert changed is True
+    assert len(sent) == 2
+
+
 def test_proses_target_does_not_update_snapshot_when_send_fails():
     def failing_send(chat_id, text):
         return False
@@ -234,7 +305,7 @@ def test_proses_siklus_routes_per_district_and_jam72_to_inti(monkeypatch):
     def fake_buka_worksheet():
         return FakeWorksheet()
 
-    def fake_send(chat_id, text):
+    def fake_send(chat_id, text, mentions=None):
         sent.append((chat_id, text))
         return True
 
@@ -248,14 +319,15 @@ def test_proses_siklus_routes_per_district_and_jam72_to_inti(monkeypatch):
     changed = km.proses_siklus(snapshot)
 
     assert changed is True
-    assert len(sent) == 6
+    assert len(sent) == 7
     assert all("CLEAR" not in text for _, text in sent)
-    assert any(chat_id == "ISI_GROUP_BATAM@g.us" and text.startswith("Alarm 3 Jam Manja Open | Batam") for chat_id, text in sent)
-    assert any(chat_id == "ISI_GROUP_BUKITTINGGI@g.us" and text.startswith("Alarm 3 Jam Manja Open | Bukittinggi") for chat_id, text in sent)
-    assert any(chat_id == "ISI_GROUP_PEKANBARU@g.us" and text.startswith("Alarm 3 Jam Diamond | Pekanbaru") for chat_id, text in sent)
-    assert any(chat_id == "ISI_GROUP_DUMAI@g.us" and text.startswith("Alarm 6 Jam Platinum | Dumai") for chat_id, text in sent)
-    assert any(chat_id == "ISI_GROUP_PADANG@g.us" and text.startswith("Alarm 72 Jam Tiket Open | Padang") for chat_id, text in sent)
-    assert any(chat_id == "ISI_GROUP_INTI@g.us" and text.startswith("Alarm 72 Jam Tiket Open\n") for chat_id, text in sent)
+    assert any(chat_id == km.DISTRIK_GRUP["BATAM"] and text.startswith("Alarm 3 Jam Manja Open | Batam") for chat_id, text in sent)
+    assert any(chat_id == km.DISTRIK_GRUP["BUKITTINGGI"] and text.startswith("Alarm 3 Jam Manja Open | Bukittinggi") for chat_id, text in sent)
+    assert any(chat_id == km.DISTRIK_GRUP["PEKANBARU"] and text.startswith("Alarm 3 Jam Diamond | Pekanbaru") for chat_id, text in sent)
+    assert any(chat_id == km.DISTRIK_GRUP["DUMAI"] and text.startswith("Alarm 6 Jam Platinum | Dumai") for chat_id, text in sent)
+    assert any(chat_id == km.DISTRIK_GRUP["PADANG"] and text.startswith("Alarm 72 Jam Tiket Open | Padang") for chat_id, text in sent)
+    assert any(chat_id == km.GRUP_INTI and text.startswith("Alarm 72 Jam Tiket Open | SBT\n") for chat_id, text in sent)
+    assert any(chat_id == km.GRUP_INTI and text.startswith("Alarm 3 Jam Manja Open | SBT\n") for chat_id, text in sent)
     assert any("dilewati" in pesan for pesan in logs)
 
     sent.clear()
@@ -263,6 +335,127 @@ def test_proses_siklus_routes_per_district_and_jam72_to_inti(monkeypatch):
 
     assert changed_again is False
     assert sent == []
+
+
+def test_normalisasi_nomor_handles_common_formats():
+    assert km.normalisasi_nomor("+62 813-7683-6000") == "6281376836000"
+    assert km.normalisasi_nomor("081277200469") == "6281277200469"
+    assert km.normalisasi_nomor("+62853 6311 8159") == "6285363118159"
+    assert km.normalisasi_nomor("8126771-5408") == "6281267715408"
+    assert km.normalisasi_nomor("") == ""
+
+
+def test_buat_pesan_inti_groups_by_district_with_cc_and_dedup_mentions():
+    rows_with_distrik = [
+        (["INC1", "90", "TAK", "DUMAI"], "DUMAI"),
+        (["INC2", "90", "TAK", "PEKAN BARU"], "PEKANBARU"),
+    ]
+
+    teks, mentions = km.buat_pesan_inti(
+        km.TABLE_CONFIGS["JAM72"], km.SUFFIX_INTI, rows_with_distrik
+    )
+
+    # Dikelompokkan per distrik mengikuti urutan TARGET_DISTRIK (Pekanbaru sebelum Dumai).
+    assert teks == "\n".join([
+        "Alarm 72 Jam Tiket Open | SBT",
+        "==============",
+        "Tiket | Open Berjalan (Jam) | STO | Distrik",
+        "INC2 | 90 | TAK | PEKAN BARU",
+        "cc @6281261323575 @628126465895",
+        "",
+        "INC1 | 90 | TAK | DUMAI",
+        "cc @6281275566031 @628126465895",
+    ])
+    # Nomor 628126465895 dipakai dua distrik tapi hanya muncul sekali di mentions.
+    assert mentions == [
+        "6281261323575@c.us",
+        "628126465895@c.us",
+        "6281275566031@c.us",
+    ]
+
+
+def test_buat_pesan_inti_unknown_district_has_no_cc():
+    rows_with_distrik = [(["INC9", "90", "OTH", "Other"], "OTHER")]
+
+    teks, mentions = km.buat_pesan_inti(
+        km.TABLE_CONFIGS["JAM72"], km.SUFFIX_INTI, rows_with_distrik
+    )
+
+    assert mentions == []
+    assert "cc " not in teks
+    assert teks.endswith("INC9 | 90 | OTH | Other")
+
+
+def test_proses_target_inti_ignores_jam_change_but_sends_mentions():
+    captured = []
+
+    def fake_send(chat_id, text, mentions=None):
+        captured.append((chat_id, text, mentions))
+        return True
+
+    snapshot = {}
+    rows_awal = [(["INC1", "72", "TAK", "PADANG"], "PADANG")]
+    rows_jam_naik = [(["INC1", "90", "TAK", "PADANG"], "PADANG")]
+
+    km.proses_target_inti(
+        snapshot,
+        ("JAM72", "__INTI__"),
+        km.GRUP_INTI,
+        km.TABLE_CONFIGS["JAM72"],
+        km.SUFFIX_INTI,
+        rows_awal,
+        fake_send,
+    )
+    changed = km.proses_target_inti(
+        snapshot,
+        ("JAM72", "__INTI__"),
+        km.GRUP_INTI,
+        km.TABLE_CONFIGS["JAM72"],
+        km.SUFFIX_INTI,
+        rows_jam_naik,
+        fake_send,
+    )
+
+    assert changed is False
+    assert len(captured) == 1
+    _, text, mentions = captured[0]
+    assert mentions == ["628116393933@c.us", "6282284545038@c.us"]
+    assert "cc @628116393933 @6282284545038" in text
+
+
+def test_proses_target_inti_triggers_when_district_changes():
+    sent = []
+
+    def fake_send(chat_id, text, mentions=None):
+        sent.append((chat_id, text, mentions))
+        return True
+
+    snapshot = {}
+    rows_awal = [(["INC1", "72", "TAK", "PADANG"], "PADANG")]
+    rows_pindah = [(["INC1", "72", "TAK", "BATAM"], "BATAM")]
+
+    km.proses_target_inti(
+        snapshot,
+        ("JAM72", "__INTI__"),
+        km.GRUP_INTI,
+        km.TABLE_CONFIGS["JAM72"],
+        km.SUFFIX_INTI,
+        rows_awal,
+        fake_send,
+    )
+    changed = km.proses_target_inti(
+        snapshot,
+        ("JAM72", "__INTI__"),
+        km.GRUP_INTI,
+        km.TABLE_CONFIGS["JAM72"],
+        km.SUFFIX_INTI,
+        rows_pindah,
+        fake_send,
+    )
+
+    assert changed is True
+    assert len(sent) == 2
+    assert sent[-1][2] == ["6281376836000@c.us", "6281277200469@c.us", "6281363210112@c.us"]
 
 
 def test_main_polls_once_and_sleeps_with_reset_interval(monkeypatch):

@@ -201,3 +201,57 @@ Snapshot hanya di memori. Jika script restart, data existing akan dikirim lagi p
 - Tidak ada persist snapshot ke disk.
 - Tidak ada sort ulang data.
 - Tidak ada pengiriman pesan kosong pada first run untuk subset yang tidak punya data.
+
+## Update 2026-06-03: Tag PIC di pesan grup inti
+
+### Deteksi perubahan tahan jam berjalan
+
+Kolom "Open Berjalan (Jam)" naik tiap recalc, sehingga hash baris ikut berubah dan
+pesan terkirim berulang walau set tiket tidak berubah. Tiap table sekarang punya
+`volatile_col_idx`: index kolom tampil yang dibuang sebelum hashing (`baris_identitas`).
+MANJA `None` (Jam Booking statis), DIAMOND/PLATINUM/JAM72 = `1`.
+
+### Routing tambahan
+
+- MANJA sekarang juga dikirim ke `GRUP_INTI` (selain per-distrik).
+- JAM72 tetap dikirim per-distrik dan ke `GRUP_INTI`.
+- DIAMOND dan PLATINUM tetap per-distrik saja.
+
+### Format pesan inti (MANJA dan JAM72)
+
+- Judul pakai suffix tetap `| SBT` (`SUFFIX_INTI`).
+- Baris dikelompokkan per distrik mengikuti urutan `TARGET_DISTRIK`
+  (Batam, Pekanbaru, Dumai, Bukittinggi, Padang); baris distrik di luar target
+  ditaruh paling akhir.
+- Tiap baris diikuti baris `cc @<nomor> @<nomor> ...` berisi PIC distrik tersebut.
+  Baris distrik tanpa PIC tampil tanpa baris `cc`.
+- Antar blok baris dipisah satu baris kosong.
+
+Contoh:
+
+```text
+Alarm 72 Jam Tiket Open | SBT
+==============
+Tiket | Open Berjalan (Jam) | STO | Distrik
+INC49803589 | 90 | TAK | BATAM
+cc @6281376836000 @6281277200469 @6281363210112
+
+INC49803589 | 90 | TAK | PEKAN BARU
+cc @6281261323575 @628126465895
+```
+
+### Mention WhatsApp
+
+- `kirim_teks_wa(chat_id, teks, mentions=None)` menambahkan `mentions` ke payload
+  `/api/sendText` bila ada. Tiap PIC muncul sebagai token `@<digit>` di teks dan
+  `<digit>@c.us` di array `mentions` (di-dedup).
+- Nomor PIC disimpan di `RAW_PIC_DISTRIK` (format bebas) lalu dinormalisasi ke
+  `62...` oleh `normalisasi_nomor` menjadi `PIC_DISTRIK`.
+- Catatan operasional: mention WhatsApp hanya memunculkan notifikasi bila nomor PIC
+  adalah anggota grup inti.
+
+### Hash pesan inti
+
+`proses_target_inti` menghitung hash atas identitas baris (kolom volatile dibuang)
+ditambah distrik ternormalisasi, sehingga perubahan distrik tetap memicu kirim ulang
+tapi jam berjalan tidak.
