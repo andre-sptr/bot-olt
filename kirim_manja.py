@@ -313,23 +313,28 @@ def buat_pesan_inti(cfg, suffix, rows_with_distrik):
     mentions = []
     seen = set()
 
-    def tambah_blok(display_row, distrik_norm):
-        baris = " | ".join(display_row)
+    def catat_mention(chat_ids):
+        for chat_id in chat_ids:
+            if chat_id not in seen:
+                seen.add(chat_id)
+                mentions.append(chat_id)
+
+    # Satu blok per distrik: semua tiket distrik itu dulu, lalu SATU baris cc PIC.
+    for distrik_norm in TARGET_DISTRIK:
+        rows = grouped[distrik_norm]
+        if not rows:
+            continue
+        baris_tiket = [" | ".join(display_row) for display_row in rows]
         cc_line, chat_ids = baris_cc_distrik(distrik_norm)
         if cc_line:
-            for chat_id in chat_ids:
-                if chat_id not in seen:
-                    seen.add(chat_id)
-                    mentions.append(chat_id)
-            blocks.append(f"{baris}\n{cc_line}")
+            catat_mention(chat_ids)
+            blocks.append("\n".join(baris_tiket + [cc_line]))
         else:
-            blocks.append(baris)
+            blocks.append("\n".join(baris_tiket))
 
-    for distrik_norm in TARGET_DISTRIK:
-        for display_row in grouped[distrik_norm]:
-            tambah_blok(display_row, distrik_norm)
-    for display_row in unknown:
-        tambah_blok(display_row, "")
+    # Distrik di luar target: tampil tanpa cc, dikumpulkan di satu blok akhir.
+    if unknown:
+        blocks.append("\n".join(" | ".join(display_row) for display_row in unknown))
 
     teks = "\n".join(lines) + "\n" + "\n\n".join(blocks)
     return teks, mentions

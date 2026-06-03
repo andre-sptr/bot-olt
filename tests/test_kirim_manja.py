@@ -374,6 +374,48 @@ def test_buat_pesan_inti_groups_by_district_with_cc_and_dedup_mentions():
     ]
 
 
+def test_buat_pesan_inti_one_cc_per_district_block():
+    rows_with_distrik = [
+        (["INC1", "90", "TAK", "DUMAI"], "DUMAI"),
+        (["INC2", "85", "TAK", "DUMAI"], "DUMAI"),
+    ]
+
+    teks, mentions = km.buat_pesan_inti(
+        km.TABLE_CONFIGS["JAM72"], km.SUFFIX_INTI, rows_with_distrik
+    )
+
+    # Semua tiket Dumai dikumpulkan dulu, baru SATU baris cc di bawahnya.
+    assert teks == "\n".join([
+        "Alarm 72 Jam Tiket Open | SBT",
+        "==============",
+        "Tiket | Open Berjalan (Jam) | STO | Distrik",
+        "INC1 | 90 | TAK | DUMAI",
+        "INC2 | 85 | TAK | DUMAI",
+        "cc @6281275566031 @628126465895",
+    ])
+    assert teks.count("cc @") == 1
+    assert mentions == ["6281275566031@c.us", "628126465895@c.us"]
+
+
+def test_buat_pesan_inti_shared_number_once_per_block_dedup_in_mentions():
+    rows_with_distrik = [
+        (["INC1", "90", "TAK", "PEKAN BARU"], "PEKANBARU"),
+        (["INC2", "80", "TAK", "PEKAN BARU"], "PEKANBARU"),
+        (["INC3", "70", "TAK", "DUMAI"], "DUMAI"),
+        (["INC4", "60", "TAK", "DUMAI"], "DUMAI"),
+    ]
+
+    teks, mentions = km.buat_pesan_inti(
+        km.TABLE_CONFIGS["JAM72"], km.SUFFIX_INTI, rows_with_distrik
+    )
+
+    # Dua distrik -> dua baris cc (satu per blok), bukan satu per tiket.
+    assert teks.count("cc @") == 2
+    # Nomor share muncul sekali di tiap blok (2x di teks) tapi sekali di mentions.
+    assert teks.count("@628126465895") == 2
+    assert mentions.count("628126465895@c.us") == 1
+
+
 def test_buat_pesan_inti_unknown_district_has_no_cc():
     rows_with_distrik = [(["INC9", "90", "OTH", "Other"], "OTHER")]
 

@@ -223,9 +223,13 @@ MANJA `None` (Jam Booking statis), DIAMOND/PLATINUM/JAM72 = `1`.
 - Baris dikelompokkan per distrik mengikuti urutan `TARGET_DISTRIK`
   (Batam, Pekanbaru, Dumai, Bukittinggi, Padang); baris distrik di luar target
   ditaruh paling akhir.
-- Tiap baris diikuti baris `cc @<nomor> @<nomor> ...` berisi PIC distrik tersebut.
-  Baris distrik tanpa PIC tampil tanpa baris `cc`.
-- Antar blok baris dipisah satu baris kosong.
+- Tiket dikelompokkan per distrik. Semua tiket satu distrik ditampilkan dulu,
+  lalu SATU baris `cc @<nomor> @<nomor> ...` berisi PIC distrik tersebut di
+  bawahnya (bukan per tiket). Distrik di luar target tampil tanpa baris `cc`.
+- Nomor PIC muncul sekali per blok distrik. Nomor yang dipakai dua distrik bisa
+  muncul di dua blok, tapi array `mentions` tetap di-dedup sehingga notifikasi
+  WhatsApp hanya sekali per orang.
+- Antar blok distrik dipisah satu baris kosong.
 
 Contoh:
 
