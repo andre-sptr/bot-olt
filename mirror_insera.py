@@ -7,6 +7,7 @@ from telethon import TelegramClient, events
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import pandas as pd
+import numpy as np
 from playwright.async_api import async_playwright
 from PIL import Image
 
@@ -17,7 +18,7 @@ api_id = 35153027
 api_hash = '275a7916b30391e446366433d5427086'
 # -1003202563880 Real
 # -4883113309 Test
-ID_GRUP_TARGET = -1003202563880
+ID_GRUP_TARGET = -1003202563880, -4883113309
 
 client = TelegramClient('sesi_mirror_insera', api_id, api_hash)
 
@@ -43,6 +44,7 @@ WAHA_SESSION = "OLTReport"
 WAHA_API_KEY = "ROpWNPkTUavqEbnz5zKU4mTiL0HIZoye"
 GROUP_ID_TUJUAN = [
     "120363408272932837@g.us", # Real
+    "120363406101184780@g.us", # Real
     # "120363423984319917@g.us", # Test
 ]
 
@@ -95,6 +97,27 @@ def hapus_file(path_file):
             catat_log(f"🗑️ File lokal '{path_file}' berhasil dihapus.")
     except Exception as e:
         catat_log(f"⚠️ Gagal menghapus file lokal: {e}")
+
+def _nilai_aman_json(v):
+    """Konversi satu nilai sel agar bisa di-serialize ke JSON (Google Sheets API).
+
+    - NaN / NaT / None        -> "" (string kosong)
+    - Timestamp / datetime    -> string "%Y-%m-%d %H:%M:%S"
+    - tipe numpy (int64, dll) -> tipe Python native (angka tetap angka)
+    """
+    if v is None:
+        return ""
+    if not isinstance(v, str) and pd.isna(v):
+        return ""
+    if isinstance(v, datetime):  # pandas.Timestamp adalah turunan datetime
+        return v.strftime("%Y-%m-%d %H:%M:%S")
+    if isinstance(v, np.generic):
+        return v.item()
+    return v
+
+def siapkan_data_sheets(df):
+    """Ubah DataFrame menjadi list-of-list yang aman dikirim ke Google Sheets."""
+    return [[_nilai_aman_json(v) for v in baris] for baris in df.values.tolist()]
 
 # ==========================================
 # 5. FUNGSI SCREENSHOT & WAHA
@@ -217,7 +240,8 @@ def kirim_via_whatsapp(path_gambar, info_bagian=""):
         caption_baru = (
             f"📊 *{judul_utama}*\n"
             f"📝 Created by FBB.SBT\n"
-            f"Tanggal: {waktu_caption}"
+            f"📅 Tanggal: {waktu_caption}\n"
+            f" Check Tiket : https://tlkm.id/KIyeooFgn5GCeh"
         )
         
         nama_file_asli = os.path.basename(path_gambar)
@@ -267,7 +291,7 @@ async def proses_dokumen_baru(event):
                 await client.download_media(event.message, file=lokasi_unduh)
                 catat_log("-> File berhasil diunduh. Sedang membaca dan menyaring data...")
                 
-                df = pd.read_excel(lokasi_unduh, sheet_name="Insera")
+                df = pd.read_excel(lokasi_unduh, sheet_name="Insera", engine="openpyxl")
                 df.columns = df.columns.astype(str).str.strip()
                 
                 cabang_target = ["BATAM", "PADANG", "BUKIT TINGGI", "BUKITTINGGI", "PEKANBARU", "DUMAI"]
@@ -282,7 +306,7 @@ async def proses_dokumen_baru(event):
                 
                 df = df.iloc[:, :80]
                 df = df.fillna("")
-                data_untuk_dikirim = df.values.tolist()
+                data_untuk_dikirim = siapkan_data_sheets(df)
                 
                 catat_log(f"-> Data berhasil difilter: {len(data_untuk_dikirim)} baris ditemukan. Memperbarui Google Sheets...")
                 
@@ -296,8 +320,8 @@ async def proses_dokumen_baru(event):
                     catat_log("⏳ Menunggu 15 detik agar Google Sheets web ter-refresh...")
                     await asyncio.sleep(15)
                     
-                    rentang_1 = "B6:AG38"
-                    rentang_2 = "B39:AG71"
+                    rentang_1 = "B6:AG39"
+                    rentang_2 = "B40:AG72"
                     MAX_RETRY = 5
 
                     async def proses_screenshot(rentang, label, info):
