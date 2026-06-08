@@ -1,4 +1,5 @@
 import os
+import time
 from datetime import datetime
 
 try:
@@ -20,8 +21,8 @@ except ModuleNotFoundError:
 # ================== KONFIGURASI ==================
 # Sheet dibaca via Service Account (gspread). Sheet harus di-share ke email
 # service account (lihat client_email di kunci_rahasia_google.json) min. Viewer.
-SPREADSHEET_ID = "1nFIBj5EjoyQxjcLAYF0kfnEN_5wKUsNvp03stW7csUw"
-GID_SHEET = 1416909766
+SPREADSHEET_ID = "15UqbvxNSuajjE8s8Pr6H_RStt9HR7nfONW17FFSnQ60"
+GID_SHEET = 2095882818
 FILE_KREDENSIAL = "kunci_rahasia_google.json"
 
 WAHA_URL = "https://waha-dutxvo095iqn.cgk-lab.sumopod.my.id"
@@ -31,37 +32,35 @@ GROUP_ID_TUJUAN = "120363422960378808@g.us"
 
 FOLDER_LOG = "logs"
 
-# Header ada di baris 2, jadi data tiket mulai dari baris 3.
-DATA_START_ROW = 3
+# Header ada di baris 1, jadi data tiket mulai dari baris 2.
+DATA_START_ROW = 2
 STATUS_OPEN = "OPEN"
 
 # Pemetaan kolom (huruf kolom Google Sheet).
-KOL_STATUS = "K"     # STATUS TICKET (filter == OPEN)
-KOL_DISTRICT = "B"
-KOL_INCIDENT = "D"
-KOL_SITE_ID = "C"
-KOL_TTRQ_HARI = "G"  # TTRq (hari)
-KOL_TTRQ_JAM = "H"   # TTRq (jam)
-KOL_INDICATOR = "M"
+KOLOM = {
+    "district": "A",
+    "site_id": "B",
+    "incident": "C",
+    "status": "D",   # STATUS LAPANGAN (filter == OPEN)
+    "progres": "E",  # PROGRES AKHIR
+    "kendala": "F",  # KENDALA
+    "support": "G",  # SUPPORT
+    "plan": "H",     # PLAN
+}
 
-JUDUL = "Report Tiket Quality"
-HEADER = "District | Incident | Site ID | TTRq | Indicator"
-PEMISAH = "-" * 56  # garis pemisah antar-district
-
-# Hanya district berikut yang dikirim, sekaligus jadi urutan tampil per grup.
+# Hanya district berikut yang diproses, sekaligus urutan kirim bubble-nya.
 # Nilai dinormalisasi (kapital, tanpa spasi) sehingga "BUKIT TINGGI" dan
 # "BUKITTINGGI" sama-sama lolos.
 DISTRICT_URUTAN = ["PEKANBARU", "DUMAI", "BATAM", "PADANG", "BUKITTINGGI"]
 DISTRICT_DIIZINKAN = set(DISTRICT_URUTAN)
+
+GARIS = "=" * 12  # garis di bawah judul "Branch <District>"
+JEDA_KIRIM = 2    # jeda detik antar pengiriman bubble per district
 # =================================================
 
 
 def tanggal_hari_ini():
     return datetime.now().strftime("%Y-%m-%d")
-
-
-def waktu_judul():
-    return datetime.now().strftime("%Y-%m-%d %H:%M")
 
 
 def nama_file_log():
@@ -108,6 +107,17 @@ def normalisasi_distrik(nama):
     return str(nama or "").strip().upper().replace(" ", "")
 
 
+def nama_distrik_tampil(distrik_norm):
+    mapping = {
+        "BATAM": "Batam",
+        "PEKANBARU": "Pekanbaru",
+        "DUMAI": "Dumai",
+        "BUKITTINGGI": "Bukittinggi",
+        "PADANG": "Padang",
+    }
+    return mapping.get(distrik_norm, str(distrik_norm).title())
+
+
 def nilai_cell(semua_nilai, row_idx, col_idx):
     if row_idx < 0 or row_idx >= len(semua_nilai):
         return ""
@@ -115,6 +125,11 @@ def nilai_cell(semua_nilai, row_idx, col_idx):
     if col_idx < 0 or col_idx >= len(row):
         return ""
     return str(row[col_idx]).strip()
+
+
+def isi_atau_strip(nilai):
+    """Kembalikan nilai apa adanya, atau '-' kalau kosong."""
+    return nilai if nilai else "-"
 
 
 def buka_worksheet():
@@ -146,69 +161,65 @@ def ambil_semua_nilai():
     return worksheet.get_all_values()
 
 
-def format_ttrq(jam, hari):
-    """Gabungkan TTRq jam (kolom H) dan hari (kolom G): '{jam} jam ({hari} hari)'."""
-    return f"{jam} jam ({hari} hari)"
+def ekstrak_open_per_distrik(semua_nilai):
+    """Kelompokkan baris STATUS LAPANGAN == OPEN per district (urut sheet).
 
+    Return dict: district_norm -> list of dict tiket.
+    """
+    idx = {nama: kolom_ke_indeks(huruf) for nama, huruf in KOLOM.items()}
+    hasil = {}
 
-def ekstrak_tiket_open(semua_nilai):
-    """Ambil baris berstatus OPEN dan susun jadi 5 kolom siap tampil."""
-    idx_status = kolom_ke_indeks(KOL_STATUS)
-    idx_district = kolom_ke_indeks(KOL_DISTRICT)
-    idx_incident = kolom_ke_indeks(KOL_INCIDENT)
-    idx_site = kolom_ke_indeks(KOL_SITE_ID)
-    idx_hari = kolom_ke_indeks(KOL_TTRQ_HARI)
-    idx_jam = kolom_ke_indeks(KOL_TTRQ_JAM)
-    idx_indicator = kolom_ke_indeks(KOL_INDICATOR)
-
-    rows = []
     start_idx = DATA_START_ROW - 1
     for row_idx in range(start_idx, len(semua_nilai)):
-        status = nilai_cell(semua_nilai, row_idx, idx_status)
+        status = nilai_cell(semua_nilai, row_idx, idx["status"])
         if status.upper() != STATUS_OPEN:
             continue
 
-        district = nilai_cell(semua_nilai, row_idx, idx_district)
-        if normalisasi_distrik(district) not in DISTRICT_DIIZINKAN:
+        district = nilai_cell(semua_nilai, row_idx, idx["district"])
+        distrik_norm = normalisasi_distrik(district)
+        if distrik_norm not in DISTRICT_DIIZINKAN:
             continue
 
-        incident = nilai_cell(semua_nilai, row_idx, idx_incident)
-        site_id = nilai_cell(semua_nilai, row_idx, idx_site)
-        ttrq_hari = nilai_cell(semua_nilai, row_idx, idx_hari)
-        ttrq_jam = nilai_cell(semua_nilai, row_idx, idx_jam)
-        indicator = nilai_cell(semua_nilai, row_idx, idx_indicator)
-
-        # Lewati baris kosong yang kebetulan kolom status-nya ber-OPEN.
-        if not (district or incident or site_id):
+        tiket = {
+            "district": district,
+            "site_id": nilai_cell(semua_nilai, row_idx, idx["site_id"]),
+            "incident": nilai_cell(semua_nilai, row_idx, idx["incident"]),
+            "progres": nilai_cell(semua_nilai, row_idx, idx["progres"]),
+            "kendala": nilai_cell(semua_nilai, row_idx, idx["kendala"]),
+            "support": nilai_cell(semua_nilai, row_idx, idx["support"]),
+            "plan": nilai_cell(semua_nilai, row_idx, idx["plan"]),
+        }
+        # Lewati baris tanpa identitas tiket.
+        if not (tiket["incident"] or tiket["site_id"]):
             continue
 
-        rows.append([
-            district.title(),  # Sheet pakai KAPITAL (PEKANBARU) -> tampil "Pekanbaru".
-            incident,
-            site_id,
-            format_ttrq(ttrq_jam, ttrq_hari),
-            indicator,
-        ])
+        hasil.setdefault(distrik_norm, []).append(tiket)
 
-    return rows
+    return hasil
 
 
-def buat_pesan(rows):
-    judul = f"*{JUDUL} {waktu_judul()}*"
-    if not rows:
-        return f"{judul}\nTidak ada tiket Quality OPEN."
+def buat_blok_tiket(tiket):
+    incident = isi_atau_strip(tiket["incident"])
+    site_id = isi_atau_strip(tiket["site_id"])
+    return "\n".join([
+        f"➡️ *{incident} / {site_id}*",
+        "⚠️ *Progres Akhir :*",
+        isi_atau_strip(tiket["progres"]),
+        "",
+        "‼️ *Kendala :*",
+        isi_atau_strip(tiket["kendala"]),
+        "",
+        "🚀 *Plan Repair :*",
+        isi_atau_strip(tiket["plan"]),
+        "",
+        f" *Support Needed :* {isi_atau_strip(tiket['support'])}",
+    ])
 
-    # Kelompokkan baris per district (urut sheet di dalam grup).
-    grup = {}
-    for row in rows:
-        kunci = normalisasi_distrik(row[0])
-        grup.setdefault(kunci, []).append(" | ".join(row))
 
-    urutan = [d for d in DISTRICT_URUTAN if d in grup]
-    urutan += [d for d in grup if d not in DISTRICT_URUTAN]  # jaga-jaga di luar daftar
-
-    blok = ["\n".join(grup[d]) for d in urutan]
-    return f"{judul}\n{HEADER}\n\n" + f"\n{PEMISAH}\n".join(blok)
+def buat_pesan_distrik(distrik_norm, tikets):
+    judul = f"Branch {nama_distrik_tampil(distrik_norm)}"
+    blok = [buat_blok_tiket(t) for t in tikets]
+    return f"{judul}\n{GARIS}\n" + "\n\n".join(blok)
 
 
 def kirim_teks_wa(chat_id, teks):
@@ -256,11 +267,25 @@ def tugas():
         catat_log("=" * 50)
         return
 
-    rows = ekstrak_tiket_open(semua_nilai)
-    catat_log(f"Ditemukan {len(rows)} tiket Quality OPEN.")
+    per_distrik = ekstrak_open_per_distrik(semua_nilai)
+    total = sum(len(v) for v in per_distrik.values())
+    catat_log(f"Ditemukan {total} tiket OPEN di {len(per_distrik)} district.")
 
-    pesan = buat_pesan(rows)
-    kirim_teks_wa(GROUP_ID_TUJUAN, pesan)
+    if total == 0:
+        kirim_teks_wa(GROUP_ID_TUJUAN, "Tidak ada tiket Quality OPEN.")
+        catat_log("Tugas Report Quality selesai.")
+        catat_log("=" * 50)
+        return
+
+    # Satu bubble (pesan) per district, dikirim ke grup yang sama.
+    for distrik_norm in DISTRICT_URUTAN:
+        tikets = per_distrik.get(distrik_norm)
+        if not tikets:
+            continue
+        pesan = buat_pesan_distrik(distrik_norm, tikets)
+        catat_log(f"Kirim bubble {nama_distrik_tampil(distrik_norm)} ({len(tikets)} tiket).")
+        kirim_teks_wa(GROUP_ID_TUJUAN, pesan)
+        time.sleep(JEDA_KIRIM)
 
     catat_log("Tugas Report Quality selesai.")
     catat_log("=" * 50)
