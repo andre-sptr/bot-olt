@@ -74,7 +74,7 @@ class KirimOrmTests(TestCase):
         text = ko.buat_pesan_distrik("PADANG", data["PADANG"])
 
         self.assertEqual(text, "\n".join([
-            "List ORM",
+            "*List ORM*",
             "Padang",
             "============",
             "ORM:",
@@ -109,8 +109,8 @@ class KirimOrmTests(TestCase):
 
         self.assertEqual(len(sent), 2)
         self.assertEqual(sent[0][0], ko.GROUP_ID_TUJUAN)
-        self.assertTrue(sent[0][1].startswith("List ORM\nPekanbaru\n============\nORM:"))
-        self.assertTrue(sent[1][1].startswith("List ORM\nPadang\n============\nORM:"))
+        self.assertTrue(sent[0][1].startswith("*List ORM*\nPekanbaru\n============\nORM:"))
+        self.assertTrue(sent[1][1].startswith("*List ORM*\nPadang\n============\nORM:"))
         self.assertEqual(sent[0][2], ["6281372264429@c.us"])
         self.assertEqual(sent[1][2], ["6281289149112@c.us"])
         self.assertTrue(any("Ditemukan 4 list ORM/NON-ORM" in pesan for pesan in logs))
