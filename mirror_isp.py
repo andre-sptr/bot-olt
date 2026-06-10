@@ -3,10 +3,20 @@ from datetime import datetime
 import requests
 import os
 import sys
-import io
 import traceback
 
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+try:
+    import gspread
+except ModuleNotFoundError:
+    gspread = None
+
+try:
+    from oauth2client.service_account import ServiceAccountCredentials
+except ModuleNotFoundError:
+    ServiceAccountCredentials = None
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 # ================== KONFIGURASI TELEGRAM ==================
 api_id = 35153027
@@ -33,6 +43,25 @@ GROUP_ID_TUJUAN = [
     GROUP_ISP,
     GROUP_POSKO
 ]
+
+# ================== KONFIGURASI SEVERITY ==================
+SPREADSHEET_ID_SEVERITY = "1impgFooLJCAaJQ6zgZ8kdRLRgHhBetCfHjge4CsXh-4"
+GID_SHEET_SEVERITY = 876436999
+FILE_KREDENSIAL_GOOGLE = "kunci_rahasia_google.json"
+
+SEVERITY_VALID = {
+    "low": "Low",
+    "minor": "Minor",
+    "major": "Major",
+    "critical": "Critical",
+}
+
+EMOJI_SEVERITY = {
+    "Low": "🟡 Low",
+    "Minor": "🟠 Minor",
+    "Major": "🔴 Major",
+    "Critical": "🟥 Critical",
+}
 
 # ======================================================
 
@@ -75,13 +104,97 @@ def simpan_log(pesan):
         f.write(pesan_full + "\n")
 
 
-def buat_laporan_list():
+def normalisasi_hostname(hostname):
+    return str(hostname or "").strip().strip("*`_").upper()
+
+
+def normalisasi_severity(severity):
+    return SEVERITY_VALID.get(str(severity or "").strip().casefold(), "")
+
+
+def buat_mapping_severity(semua_nilai):
+    """Buat mapping HOSTNAME -> SEVERITY dari kolom A:B."""
+    mapping = {}
+
+    for baris in semua_nilai[1:]:
+        if not baris:
+            continue
+
+        hostname = normalisasi_hostname(baris[0])
+        severity = normalisasi_severity(baris[1] if len(baris) > 1 else "")
+        if hostname and severity:
+            mapping[hostname] = severity
+
+    return mapping
+
+
+def ambil_mapping_severity():
+    """Ambil HOSTNAME dan SEVERITY dari tab Sev Mini OLT."""
+    missing = []
+    if gspread is None:
+        missing.append("gspread")
+    if ServiceAccountCredentials is None:
+        missing.append("oauth2client")
+    if missing:
+        raise RuntimeError(
+            "Dependency Google Sheet belum tersedia: " + ", ".join(missing)
+        )
+
+    scope = [
+        "https://www.googleapis.com/auth/spreadsheets.readonly",
+    ]
+    credentials = ServiceAccountCredentials.from_json_keyfile_name(
+        FILE_KREDENSIAL_GOOGLE,
+        scope,
+    )
+    client_gs = gspread.authorize(credentials)
+    spreadsheet = client_gs.open_by_key(SPREADSHEET_ID_SEVERITY)
+    worksheet = spreadsheet.get_worksheet_by_id(GID_SHEET_SEVERITY)
+    return buat_mapping_severity(worksheet.get("A:B"))
+
+
+def format_baris_down(no, info, mapping_severity):
+    bagian = [nilai.strip() for nilai in str(info or "").split("|")]
+    bagian += [""] * (5 - len(bagian))
+
+    district = bagian[0] or "-"
+    hostname = normalisasi_hostname(bagian[1]) or "-"
+    durasi_down = bagian[2] or "-"
+    node_b = bagian[3] or "-"
+    id_pln = bagian[4] or "-"
+
+    severity = normalisasi_severity(mapping_severity.get(hostname, ""))
+    severity_tampil = EMOJI_SEVERITY.get(severity, "-")
+
+    return (
+        f"{no} | {district} | {hostname} | {durasi_down} | "
+        f"{node_b} | {severity_tampil} | {id_pln}"
+    )
+
+
+def buat_laporan_list(mapping_severity=None):
+    if mapping_severity is None:
+        try:
+            mapping_severity = ambil_mapping_severity()
+            simpan_log(
+                f"Berhasil mengambil {len(mapping_severity)} data severity "
+                f"dari GID {GID_SHEET_SEVERITY}"
+            )
+        except Exception as exc:
+            mapping_severity = {}
+            simpan_log(
+                f"Gagal mengambil data severity, menggunakan '-': {exc}"
+            )
+
     teks_laporan = "*OLT DOWN*\n"
-    teks_laporan += "NO | DISTRICT | HOSTNAME | DURASI DOWN | NodeB | IdPLN\n"
+    teks_laporan += (
+        "NO | DISTRICT | HOSTNAME | DURASI DOWN | "
+        "NodeB | SEVERITY | IdPLN\n"
+    )
     
     no = 1
     for hostname, info in data_gpon_down.items():
-        teks_laporan += f"{no}. {info}\n"
+        teks_laporan += format_baris_down(no, info, mapping_severity) + "\n"
         no += 1
         
     teks_laporan += "\n*OLT UP*\n"
@@ -168,7 +281,7 @@ async def proses_pesan_baru(event):
                 if 'GPON' in baris.upper() and '|' in baris:
                     bagian = [b.strip() for b in baris.split('|')]
                     if len(bagian) >= 1:
-                        hostname = bagian[0]
+                        hostname = normalisasi_hostname(bagian[0])
                         data_gabungan = f"{nama_distrik} | {baris.strip()}"
                         data_gpon_down[hostname] = data_gabungan
                         ada_perubahan = True
@@ -182,6 +295,7 @@ async def proses_pesan_baru(event):
                     bagian = [b.strip() for b in baris.split('|')]
                     hostname = next((b for b in bagian if 'GPON' in b.upper()), None)
                     if hostname:
+                        hostname = normalisasi_hostname(hostname)
                         data_gpon_up[hostname] = baris.strip()
                         ada_perubahan = True
                         
