@@ -646,6 +646,62 @@ def _write_empty_three_hour_header(
         worksheet.merge_cells(range_name)
 
 
+def replace_active_worksheet_data(
+    worksheet,
+    records: list[BackfillRecord],
+    period: BackfillPeriod,
+):
+    six_hour = [record for record in records if record.table == "6h"]
+    if not six_hour:
+        raise RuntimeError(
+            f"Tidak ada record TTR 6 jam untuk {period.label}; sheet tidak diubah."
+        )
+
+    template_values = worksheet.get_all_values()
+    title_rows, header_rows = _find_table_rows(template_values)
+    first_start_row = header_rows[0] + 2
+    second_title_row = title_rows[1] + 1
+    first_capacity = second_title_row - first_start_row
+
+    if len(six_hour) > first_capacity:
+        extra_rows = len(six_hour) - first_capacity
+        worksheet.insert_rows(
+            [[""] * 37 for _ in range(extra_rows)],
+            row=second_title_row,
+            inherit_from_before=True,
+        )
+        title_rows[1] += extra_rows
+        header_rows[1] += extra_rows
+
+    worksheet.batch_clear(
+        [
+            f"B{first_start_row}:AK{title_rows[1]}",
+            f"B{header_rows[1] + 2}:AK{worksheet.row_count}",
+        ]
+    )
+    worksheet.update([[period.label]], f"B{title_rows[0] + 1}")
+    worksheet.update([[period.label]], f"B{title_rows[1] + 1}")
+    _write_record_rows(
+        worksheet,
+        first_start_row,
+        six_hour,
+        period,
+    )
+
+    written_values = worksheet.get_all_values()
+    written_count = sum(
+        1
+        for row in written_values
+        if len(row) > 36 and row[36].strip() == period.label
+    )
+    if written_count != len(six_hour):
+        raise RuntimeError(
+            f"Verifikasi gagal: ditulis {written_count}, "
+            f"diharapkan {len(six_hour)}."
+        )
+    return written_count
+
+
 def create_archive_worksheet(
     source_spreadsheet,
     destination_spreadsheet,
@@ -759,6 +815,14 @@ def parse_args():
         action="store_true",
         help="Buat tab tujuan setelah preview dan validasi selesai.",
     )
+    parser.add_argument(
+        "--current-sheet",
+        action="store_true",
+        help=(
+            "Ganti isi tabel TTR 6 jam pada sheet Gamas ISP. "
+            "Hanya dapat digunakan untuk satu bulan."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -768,6 +832,8 @@ async def main(args):
     source_spreadsheet, destination_spreadsheet = setup_google_sheets()
     site_district_map = build_site_district_map(source_spreadsheet)
     periods = [BackfillPeriod.for_month(month) for month in args.months]
+    if args.current_sheet and len(periods) != 1:
+        raise RuntimeError("--current-sheet hanya menerima tepat satu bulan.")
 
     client = TelegramClient(
         "sesi_backfill_perform",
@@ -792,6 +858,20 @@ async def main(args):
         )
     if not args.write:
         print("\nMode preview: spreadsheet belum diubah. Gunakan --write untuk menulis.")
+        return
+
+    if args.current_sheet:
+        period = periods[0]
+        worksheet = source_spreadsheet.get_worksheet_by_id(SOURCE_WORKSHEET_GID)
+        written_count = replace_active_worksheet_data(
+            worksheet,
+            records_by_month[period.month],
+            period,
+        )
+        print(
+            f"Selesai: {written_count} record ditulis ke "
+            f"{worksheet.title} (GID {worksheet.id})."
+        )
         return
 
     for period in periods:

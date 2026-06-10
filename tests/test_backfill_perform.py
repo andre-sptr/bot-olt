@@ -1,4 +1,5 @@
 import unittest
+import re
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -10,8 +11,48 @@ from backfill_perform import (
     is_target_month,
     parse_blackout_message,
     parse_recovery_message,
+    replace_active_worksheet_data,
     resolve_recovery_context,
 )
+
+
+class FakeCurrentWorksheet:
+    def __init__(self, values, row_count=20):
+        self.values = [list(row) for row in values]
+        self.row_count = row_count
+        self.insert_calls = 0
+
+    def get_all_values(self):
+        return [list(row) for row in self.values]
+
+    def insert_rows(self, values, row, inherit_from_before=False):
+        self.insert_calls += 1
+        for offset, value in enumerate(values):
+            self.values.insert(row - 1 + offset, list(value))
+        self.row_count += len(values)
+
+    def batch_clear(self, ranges):
+        for range_name in ranges:
+            match = re.fullmatch(r"B(\d+):AK(\d+)", range_name)
+            if not match:
+                raise AssertionError(range_name)
+            start_row, end_row = (int(value) for value in match.groups())
+            for row_number in range(start_row, min(end_row, len(self.values)) + 1):
+                row = self.values[row_number - 1]
+                row.extend([""] * (37 - len(row)))
+                row[1:37] = [""] * 36
+
+    def update(self, values, range_name):
+        match = re.fullmatch(r"B(\d+)(?::AK(\d+))?", range_name)
+        if not match:
+            raise AssertionError(range_name)
+        start_row = int(match.group(1))
+        for offset, value_row in enumerate(values):
+            row_index = start_row - 1 + offset
+            while row_index >= len(self.values):
+                self.values.append([""] * 37)
+            self.values[row_index].extend([""] * (37 - len(self.values[row_index])))
+            self.values[row_index][1:1 + len(value_row)] = list(value_row)
 
 
 class BackfillPerformTest(unittest.TestCase):
@@ -196,6 +237,41 @@ GPON00-D1-DUM-3UJT""",
 
         self.assertEqual(mapping["GPON00-D1-PPN-2MTO"], "DUM")
         self.assertEqual(mapping["PPN"], "DUM")
+
+    def test_replaces_active_sheet_without_duplicate_rows_on_rerun(self):
+        values = [[""] * 37 for _ in range(10)]
+        values[1][1] = "Juni 2026"
+        values[1][2] = "Durasi Down (Menit) - TTR 6 Jam (360 Menit)"
+        values[2][1] = "NE Hostname"
+        values[4][1] = "Juni 2026"
+        values[4][2] = "Durasi Down (Menit) - TTR 3 Jam (180 Menit)"
+        values[5][1] = "NE Hostname"
+        worksheet = FakeCurrentWorksheet(values)
+        period = BackfillPeriod.for_month(6)
+        records = [
+            BackfillRecord("6h", "OLT-A", "DUM", "PLN", 60, 1),
+            BackfillRecord("6h", "OLT-B", "PKU", "Kable CUT", 400, 2),
+        ]
+
+        replace_active_worksheet_data(worksheet, records, period)
+        replace_active_worksheet_data(worksheet, records, period)
+
+        data_rows = [
+            row
+            for row in worksheet.values
+            if len(row) > 36 and row[36] == "Juni 2026"
+        ]
+        self.assertEqual(len(data_rows), 2)
+        self.assertEqual([row[1] for row in data_rows], ["OLT-A", "OLT-B"])
+        self.assertEqual(worksheet.insert_calls, 1)
+        self.assertEqual(
+            sum(
+                1
+                for row in worksheet.values
+                if len(row) > 2 and "TTR 3 Jam" in str(row[2])
+            ),
+            1,
+        )
 
 
 if __name__ == "__main__":
