@@ -30,6 +30,7 @@ build/
 
 # Local brainstorming artifacts
 .superpowers/
+.worktrees/
 
 # OS
 .DS_Store
