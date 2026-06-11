@@ -80,6 +80,8 @@ EMOJI_SEVERITY = {
     "Critical": "🟥 Critical",
 }
 
+GARIS_TABEL = "-" * 52
+
 # ======================================================
 
 FOLDER_LOG = "logs"
@@ -328,18 +330,18 @@ def format_baris_down(no, info, mapping_metadata):
     district = bagian[0] or "-"
     hostname = normalisasi_hostname(bagian[1]) or "-"
     durasi_down = bagian[2] or "-"
-    node_b = bagian[3] or "-"
+    node_b = bagian[3] or "0"
     id_pln = bagian[4] or "-"
 
     metadata = mapping_metadata.get(hostname, {})
     severity = normalisasi_severity(metadata.get("severity", ""))
     severity_tampil = EMOJI_SEVERITY.get(severity, "-")
-    olo = str(metadata.get("olo", "") or "").strip() or "-"
-    k2 = str(metadata.get("k2", "") or "").strip() or "-"
-    k3 = str(metadata.get("k3", "") or "").strip() or "-"
+    olo = str(metadata.get("olo", "") or "").strip() or "0"
+    k2 = str(metadata.get("k2", "") or "").strip() or "0"
+    k3 = str(metadata.get("k3", "") or "").strip() or "0"
 
     return (
-        f"{no} | {district} | {hostname} | {durasi_down} | "
+        f"{no}. | {district} | {hostname} | {durasi_down} | "
         f"{severity_tampil} | {node_b} | {olo} | {k2} | {k3} | {id_pln}"
     )
 
@@ -362,6 +364,7 @@ def buat_laporan_list(mapping_metadata=None):
     teks_laporan += (
         "NO | DISTRICT | HOSTNAME | DURASI DOWN | SEVERITY | "
         "NodeB | OLO | K2 | K3 | IdPLN\n"
+        f"{GARIS_TABEL}\n"
     )
     
     no = 1
@@ -371,6 +374,7 @@ def buat_laporan_list(mapping_metadata=None):
         
     teks_laporan += "\n*OLT UP*\n"
     teks_laporan += "NO | HOSTNAME | STATUS\n"
+    teks_laporan += f"{GARIS_TABEL}\n"
     
     no = 1
     for hostname, info in data_gpon_up.items():
