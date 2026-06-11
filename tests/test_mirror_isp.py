@@ -115,7 +115,7 @@ class MirrorISPTests(TestCase):
 
         self.assertEqual(
             baris,
-            "1. | DUMAI | GPON00-D1-AMK-2UKUI | 01:30 | "
+            "1. DUMAI | GPON00-D1-AMK-2UKUI | 01:30 | "
             "🟥 Critical | NodeB-123 | TSEL | 2 | 3 | PLN-456",
         )
 
@@ -128,7 +128,7 @@ class MirrorISPTests(TestCase):
 
         self.assertEqual(
             baris,
-            "2. | PADANG | GPON00-D1-UNKNOWN | 10 Menit | "
+            "2. PADANG | GPON00-D1-UNKNOWN | 10 Menit | "
             "- | 0 | 0 | 0 | 0 | -",
         )
 
@@ -156,18 +156,18 @@ class MirrorISPTests(TestCase):
         self.assertIn(
             "NO | DISTRICT | HOSTNAME | DURASI DOWN | SEVERITY | "
             "NodeB | OLO | K2 | K3 | IdPLN\n"
-            "------------------------------------------\n",
+            "----------------------------------------------------\n",
             laporan,
         )
         self.assertIn(
-            "1. | BATAM | GPON00-D1-ARK-3SGA | 00:15 | "
+            "1. BATAM | GPON00-D1-ARK-3SGA | 00:15 | "
             "🟠 Minor | NB-1 | ISAT | 1 | 4 | ID-1",
             laporan,
         )
         self.assertIn(
             "*OLT UP*\n"
             "NO | HOSTNAME | STATUS\n"
-            "------------------------------------------\n",
+            "----------------------------------------------------\n",
             laporan,
         )
 
@@ -187,7 +187,7 @@ class MirrorISPTests(TestCase):
             laporan = mi.buat_laporan_list()
 
         self.assertIn(
-            "1. | PADANG | GPON00-D1-UNKNOWN | 10 Menit | "
+            "1. PADANG | GPON00-D1-UNKNOWN | 10 Menit | "
             "- | NB-2 | 0 | 0 | 0 | ID-2",
             laporan,
         )
