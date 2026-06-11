@@ -28,6 +28,9 @@ build/
 .vscode/
 .idea/
 
+# Local brainstorming artifacts
+.superpowers/
+
 # OS
 .DS_Store
 Thumbs.db
