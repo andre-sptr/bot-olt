@@ -2,6 +2,7 @@ from telethon import TelegramClient, events
 from datetime import datetime
 import requests
 import os
+import re
 import sys
 import traceback
 
@@ -44,9 +45,25 @@ GROUP_ID_TUJUAN = [
     GROUP_POSKO
 ]
 
-# ================== KONFIGURASI SEVERITY ==================
-SPREADSHEET_ID_SEVERITY = "1impgFooLJCAaJQ6zgZ8kdRLRgHhBetCfHjge4CsXh-4"
-GID_SHEET_SEVERITY = 876436999
+# ================== KONFIGURASI ESKALASI ==================
+RAW_MANAGER_WA = [
+    "+628126723729",
+    "+6282269171322",
+    "+6285272352267",
+    "+628117410017",
+]
+
+RAW_OFFICER_DISTRIK = {
+    "BATAM": ["+6281334729757", "+6281289149112"],
+    "PEKANBARU": ["+6281372264429", "+6281371717102"],
+    "DUMAI": ["+6281374559924", "+6282117127892"],
+    "BUKITTINGGI": ["+628116888112", "+6281220558735"],
+    "PADANG": ["+6282171996392", "+6281395233452"],
+}
+
+# ================== KONFIGURASI METADATA OLT ==================
+SPREADSHEET_ID_METADATA = "1crQdVmqXoROtuiaB4-ce7sIwJh26oxKMPq3Mj6-GyLU"
+GID_SHEET_METADATA = 1706912635
 FILE_KREDENSIAL_GOOGLE = "kunci_rahasia_google.json"
 
 SEVERITY_VALID = {
@@ -108,28 +125,179 @@ def normalisasi_hostname(hostname):
     return str(hostname or "").strip().strip("*`_").upper()
 
 
+def normalisasi_distrik(distrik):
+    return str(distrik or "").strip().upper().replace(" ", "")
+
+
+def normalisasi_nomor(raw):
+    digits = "".join(karakter for karakter in str(raw or "") if karakter.isdigit())
+    if not digits:
+        return ""
+    if digits.startswith("62"):
+        return digits
+    if digits.startswith("0"):
+        return "62" + digits[1:]
+    if digits.startswith("8"):
+        return "62" + digits
+    return digits
+
+
+def normalisasi_daftar_nomor(daftar_nomor):
+    hasil = []
+    sudah_ada = set()
+
+    for raw in daftar_nomor or []:
+        nomor = normalisasi_nomor(raw)
+        if nomor and nomor not in sudah_ada:
+            sudah_ada.add(nomor)
+            hasil.append(nomor)
+
+    return hasil
+
+
+def durasi_ke_menit(durasi):
+    teks = str(durasi or "").strip()
+    if not teks:
+        return None
+
+    cocok_jam = re.fullmatch(
+        r"(\d{1,3}):([0-5]\d)(?::([0-5]\d))?",
+        teks,
+    )
+    if cocok_jam:
+        return int(cocok_jam.group(1)) * 60 + int(cocok_jam.group(2))
+
+    cocok_jam_teks = re.search(r"(\d+)\s*jam", teks, re.IGNORECASE)
+    cocok_menit_teks = re.search(r"(\d+)\s*menit", teks, re.IGNORECASE)
+    if not cocok_jam_teks and not cocok_menit_teks:
+        return None
+
+    total_menit = 0
+    if cocok_jam_teks:
+        total_menit += int(cocok_jam_teks.group(1)) * 60
+    if cocok_menit_teks:
+        total_menit += int(cocok_menit_teks.group(1))
+    return total_menit
+
+
+def ambil_olt_down_lebih_satu_jam(data_down=None):
+    sumber_data = data_gpon_down if data_down is None else data_down
+    hasil = []
+
+    for hostname_kunci, info in sumber_data.items():
+        bagian = [nilai.strip() for nilai in str(info or "").split("|")]
+        bagian += [""] * (5 - len(bagian))
+
+        durasi = bagian[2]
+        total_menit = durasi_ke_menit(durasi)
+        if total_menit is None or total_menit <= 60:
+            continue
+
+        hasil.append(
+            {
+                "district": normalisasi_distrik(bagian[0]),
+                "hostname": normalisasi_hostname(bagian[1] or hostname_kunci),
+                "duration": durasi,
+                "minutes": total_menit,
+            }
+        )
+
+    return hasil
+
+
+def buat_pesan_eskalasi(
+    daftar_down=None,
+    manager_numbers=None,
+    officer_by_district=None,
+):
+    if daftar_down is None:
+        daftar_down = ambil_olt_down_lebih_satu_jam()
+    if not daftar_down:
+        return None, []
+
+    if manager_numbers is None:
+        manager_numbers = RAW_MANAGER_WA
+    if officer_by_district is None:
+        officer_by_district = RAW_OFFICER_DISTRIK
+
+    managers = normalisasi_daftar_nomor(manager_numbers)
+    officers = {
+        normalisasi_distrik(distrik): normalisasi_daftar_nomor(daftar_nomor)
+        for distrik, daftar_nomor in officer_by_district.items()
+    }
+
+    lines = ["🚨 *ESKALASI OLT DOWN > 1 JAM*"]
+    distrik_terdampak = []
+    for insiden in daftar_down:
+        distrik = normalisasi_distrik(insiden.get("district"))
+        hostname = normalisasi_hostname(insiden.get("hostname")) or "-"
+        durasi = str(insiden.get("duration") or "-").strip()
+        lines.append(f"🔴 {distrik or 'UNKNOWN'} | {hostname} | {durasi}")
+        if distrik and distrik not in distrik_terdampak:
+            distrik_terdampak.append(distrik)
+
+    baris_pic = []
+    if managers:
+        baris_pic.append(" ".join(f"@{nomor}" for nomor in managers))
+
+    mentions = []
+    mention_tercatat = set()
+
+    def tambah_mentions(daftar_nomor):
+        for nomor in daftar_nomor:
+            chat_id = f"{nomor}@c.us"
+            if chat_id not in mention_tercatat:
+                mention_tercatat.add(chat_id)
+                mentions.append(chat_id)
+
+    tambah_mentions(managers)
+
+    for distrik in distrik_terdampak:
+        daftar_officer = officers.get(distrik, [])
+        if not daftar_officer:
+            continue
+        token_officer = " ".join(f"@{nomor}" for nomor in daftar_officer)
+        baris_pic.append(f"PIC {distrik}: {token_officer}")
+        tambah_mentions(daftar_officer)
+
+    if baris_pic:
+        lines.extend(["", *baris_pic])
+
+    lines.extend(["", "*SEGERA CONCALL & UPDATE PROGRES PENANGANAN.*"])
+    return "\n".join(lines), mentions
+
+
 def normalisasi_severity(severity):
     return SEVERITY_VALID.get(str(severity or "").strip().casefold(), "")
 
 
-def buat_mapping_severity(semua_nilai):
-    """Buat mapping HOSTNAME -> SEVERITY dari kolom A:B."""
+def buat_mapping_metadata(semua_nilai):
+    """Buat mapping HOSTNAME -> metadata dari range E3:O."""
     mapping = {}
 
-    for baris in semua_nilai[1:]:
+    for baris in semua_nilai:
         if not baris:
             continue
 
-        hostname = normalisasi_hostname(baris[0])
-        severity = normalisasi_severity(baris[1] if len(baris) > 1 else "")
-        if hostname and severity:
-            mapping[hostname] = severity
+        nilai = [str(item or "").strip() for item in baris]
+        nilai += [""] * (11 - len(nilai))
+
+        hostname = normalisasi_hostname(nilai[0])
+        if not hostname:
+            continue
+
+        mapping[hostname] = {
+            "severity": normalisasi_severity(nilai[7]),
+            "olo": nilai[8],
+            "k2": nilai[9],
+            "k3": nilai[10],
+        }
 
     return mapping
 
 
-def ambil_mapping_severity():
-    """Ambil HOSTNAME dan SEVERITY dari tab Sev Mini OLT."""
+def ambil_mapping_metadata():
+    """Ambil hostname, severity, OLO, K2, dan K3 dari Google Sheet."""
     missing = []
     if gspread is None:
         missing.append("gspread")
@@ -148,12 +316,12 @@ def ambil_mapping_severity():
         scope,
     )
     client_gs = gspread.authorize(credentials)
-    spreadsheet = client_gs.open_by_key(SPREADSHEET_ID_SEVERITY)
-    worksheet = spreadsheet.get_worksheet_by_id(GID_SHEET_SEVERITY)
-    return buat_mapping_severity(worksheet.get("A:B"))
+    spreadsheet = client_gs.open_by_key(SPREADSHEET_ID_METADATA)
+    worksheet = spreadsheet.get_worksheet_by_id(GID_SHEET_METADATA)
+    return buat_mapping_metadata(worksheet.get("E3:O"))
 
 
-def format_baris_down(no, info, mapping_severity):
+def format_baris_down(no, info, mapping_metadata):
     bagian = [nilai.strip() for nilai in str(info or "").split("|")]
     bagian += [""] * (5 - len(bagian))
 
@@ -163,38 +331,42 @@ def format_baris_down(no, info, mapping_severity):
     node_b = bagian[3] or "-"
     id_pln = bagian[4] or "-"
 
-    severity = normalisasi_severity(mapping_severity.get(hostname, ""))
+    metadata = mapping_metadata.get(hostname, {})
+    severity = normalisasi_severity(metadata.get("severity", ""))
     severity_tampil = EMOJI_SEVERITY.get(severity, "-")
+    olo = str(metadata.get("olo", "") or "").strip() or "-"
+    k2 = str(metadata.get("k2", "") or "").strip() or "-"
+    k3 = str(metadata.get("k3", "") or "").strip() or "-"
 
     return (
         f"{no} | {district} | {hostname} | {durasi_down} | "
-        f"{node_b} | {severity_tampil} | {id_pln}"
+        f"{severity_tampil} | {node_b} | {olo} | {k2} | {k3} | {id_pln}"
     )
 
 
-def buat_laporan_list(mapping_severity=None):
-    if mapping_severity is None:
+def buat_laporan_list(mapping_metadata=None):
+    if mapping_metadata is None:
         try:
-            mapping_severity = ambil_mapping_severity()
+            mapping_metadata = ambil_mapping_metadata()
             simpan_log(
-                f"Berhasil mengambil {len(mapping_severity)} data severity "
-                f"dari GID {GID_SHEET_SEVERITY}"
+                f"Berhasil mengambil {len(mapping_metadata)} data metadata OLT "
+                f"dari GID {GID_SHEET_METADATA}"
             )
         except Exception as exc:
-            mapping_severity = {}
+            mapping_metadata = {}
             simpan_log(
-                f"Gagal mengambil data severity, menggunakan '-': {exc}"
+                f"Gagal mengambil metadata OLT, menggunakan '-': {exc}"
             )
 
     teks_laporan = "*OLT DOWN*\n"
     teks_laporan += (
-        "NO | DISTRICT | HOSTNAME | DURASI DOWN | "
-        "NodeB | SEVERITY | IdPLN\n"
+        "NO | DISTRICT | HOSTNAME | DURASI DOWN | SEVERITY | "
+        "NodeB | OLO | K2 | K3 | IdPLN\n"
     )
     
     no = 1
     for hostname, info in data_gpon_down.items():
-        teks_laporan += format_baris_down(no, info, mapping_severity) + "\n"
+        teks_laporan += format_baris_down(no, info, mapping_metadata) + "\n"
         no += 1
         
     teks_laporan += "\n*OLT UP*\n"
@@ -220,7 +392,7 @@ def simpan_ke_file_laporan(teks):
         simpan_log(f"❌ Error saat membuat file laporan: {e}")
 
 
-def kirim_pesan_wa(teks):
+def kirim_pesan_wa(teks, mentions=None):
     url = f"{WAHA_URL.rstrip('/')}/api/sendText"
     headers = {
         "Content-Type": "application/json",
@@ -237,6 +409,8 @@ def kirim_pesan_wa(teks):
             "chatId": chat_id, 
             "text": teks
         }
+        if mentions:
+            payload["mentions"] = mentions
         
         try:
             response = requests.post(url, headers=headers, json=payload, timeout=30)
@@ -307,6 +481,10 @@ async def proses_pesan_baru(event):
             teks_laporan_baru = buat_laporan_list()
             simpan_ke_file_laporan(teks_laporan_baru)
             kirim_pesan_wa(teks_laporan_baru)
+
+            teks_eskalasi, mentions = buat_pesan_eskalasi()
+            if teks_eskalasi:
+                kirim_pesan_wa(teks_eskalasi, mentions)
 
     except Exception as e:
         simpan_log(f"❌ Error dalam proses_pesan_baru: {e}")

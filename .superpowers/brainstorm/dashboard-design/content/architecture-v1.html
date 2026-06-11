@@ -1,0 +1,80 @@
+<h2>Arsitektur MVP Visual Bot Builder</h2>
+<p class="subtitle">Satu aplikasi terpusat menggantikan kumpulan script dan crontab terpisah.</p>
+
+<div class="mockup">
+  <div class="mockup-header">Alur konfigurasi dan eksekusi</div>
+  <div class="mockup-body">
+    <div style="display:grid;grid-template-columns:1fr auto 1fr auto 1fr;gap:14px;align-items:center;text-align:center">
+      <div style="padding:18px;border:2px solid #2563eb;border-radius:12px;background:#eff6ff">
+        <strong>Dashboard Web</strong>
+        <div style="margin-top:8px;font-size:13px">Wizard bot, preview area, jadwal, log, test run</div>
+      </div>
+      <div style="font-size:26px">→</div>
+      <div style="padding:18px;border:2px solid #7c3aed;border-radius:12px;background:#f5f3ff">
+        <strong>API + Database</strong>
+        <div style="margin-top:8px;font-size:13px">BotConfig, tujuan WA, jadwal, run history, secret reference</div>
+      </div>
+      <div style="font-size:26px">→</div>
+      <div style="padding:18px;border:2px solid #059669;border-radius:12px;background:#ecfdf5">
+        <strong>Scheduler</strong>
+        <div style="margin-top:8px;font-size:13px">Menentukan bot yang harus dijalankan tanpa crontab per bot</div>
+      </div>
+    </div>
+
+    <div style="text-align:center;font-size:26px;margin:12px 0">↓</div>
+
+    <div style="display:grid;grid-template-columns:1fr auto 1fr auto 1fr;gap:14px;align-items:center;text-align:center">
+      <div style="padding:18px;border:2px solid #d97706;border-radius:12px;background:#fffbeb">
+        <strong>Google Sheet Publik</strong>
+        <div style="margin-top:8px;font-size:13px">URL dan area screenshot pilihan user</div>
+      </div>
+      <div style="font-size:26px">→</div>
+      <div style="padding:18px;border:2px solid #059669;border-radius:12px;background:#ecfdf5">
+        <strong>Worker Playwright</strong>
+        <div style="margin-top:8px;font-size:13px">Buka sheet, screenshot, crop, optimasi gambar, retry</div>
+      </div>
+      <div style="font-size:26px">→</div>
+      <div style="padding:18px;border:2px solid #16a34a;border-radius:12px;background:#f0fdf4">
+        <strong>WAHA</strong>
+        <div style="margin-top:8px;font-size:13px">Kirim satu gambar dan caption ke beberapa grup</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:22px">
+  <div class="label">Peran OpenAI</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:8px">
+    <div style="padding:14px;border:1px solid #cbd5e1;border-radius:10px">
+      <strong>AI Config Assistant</strong>
+      <p>Mengubah instruksi bahasa Indonesia menjadi draft konfigurasi terstruktur. User tetap melakukan preview, test, dan aktivasi.</p>
+    </div>
+    <div style="padding:14px;border:1px solid #cbd5e1;border-radius:10px">
+      <strong>AI Failure Analyst</strong>
+      <p>Meringkas log gagal dan memberi langkah perbaikan. AI tidak memiliki izin menjalankan shell atau kode bebas.</p>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="label">Boundary keamanan</div>
+  <p>API key WAHA dan OpenAI disimpan terenkripsi. Worker hanya menjalankan operasi yang telah ditentukan. Tidak ada Python hasil AI yang dieksekusi langsung.</p>
+</div>
+
+<h3>Apakah pembagian komponen dan alur ini sudah tepat?</h3>
+<div class="options">
+  <div class="option" data-choice="architecture-approved" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Setuju</h3>
+      <p>Lanjut ke struktur halaman dan wizard pembuatan bot.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="architecture-revise" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Perlu perubahan</h3>
+      <p>Sampaikan komponen atau alur yang perlu disesuaikan di chat.</p>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,140 @@
+<h2>Struktur Dashboard dan Wizard Bot</h2>
+<p class="subtitle">MVP memusatkan pembuatan, pengujian, penjadwalan, dan pemantauan bot dalam satu alur.</p>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">Dashboard Utama</div>
+    <div class="mockup-body" style="padding:0">
+      <div class="mock-nav" style="display:flex;justify-content:space-between">
+        <strong>Automation Hub</strong>
+        <span>Admin · Settings</span>
+      </div>
+      <div style="display:flex;min-height:390px">
+        <div class="mock-sidebar" style="width:150px">
+          <strong>Dashboard</strong><br><br>
+          Bot Saya<br><br>
+          Riwayat Run<br><br>
+          Integrasi<br><br>
+          AI Assistant
+        </div>
+        <div class="mock-content" style="flex:1">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <div>
+              <h3 style="margin:0">Bot Saya</h3>
+              <small>4 aktif · 1 perlu perhatian</small>
+            </div>
+            <button class="mock-button">+ Buat Bot</button>
+          </div>
+
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:18px 0">
+            <div style="padding:10px;background:#ecfdf5;border-radius:8px"><strong>4</strong><br><small>Bot Aktif</small></div>
+            <div style="padding:10px;background:#eff6ff;border-radius:8px"><strong>27</strong><br><small>Sukses Hari Ini</small></div>
+            <div style="padding:10px;background:#fef2f2;border-radius:8px"><strong>1</strong><br><small>Gagal</small></div>
+          </div>
+
+          <div style="border:1px solid #cbd5e1;border-radius:8px;padding:12px;margin-bottom:10px">
+            <div style="display:flex;justify-content:space-between">
+              <strong>Funneling OLT Down</strong><span style="color:#15803d">● Aktif</span>
+            </div>
+            <small>Setiap hari 08:00 · 2 grup WhatsApp</small>
+            <div style="margin-top:8px;font-size:12px">Run terakhir: sukses, 11 Juni 2026 08:00</div>
+          </div>
+
+          <div style="border:1px solid #fecaca;border-radius:8px;padding:12px;background:#fff7f7">
+            <div style="display:flex;justify-content:space-between">
+              <strong>Report ISP</strong><span style="color:#b91c1c">● Gagal</span>
+            </div>
+            <small>Setiap 30 menit · 1 grup WhatsApp</small>
+            <div style="margin-top:8px;font-size:12px">Sheet timeout · Lihat analisis AI</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">Wizard: Buat Bot Screenshot</div>
+    <div class="mockup-body">
+      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:18px">
+        <strong style="color:#2563eb">1. Sumber</strong>
+        <span>2. Area</span>
+        <span>3. Pesan</span>
+        <span>4. Tujuan</span>
+        <span>5. Jadwal</span>
+        <span>6. Test</span>
+      </div>
+
+      <label><strong>Nama bot</strong></label>
+      <div class="mock-input" style="margin:6px 0 14px">Funneling OLT Down</div>
+
+      <label><strong>URL Google Sheet publik</strong></label>
+      <div class="mock-input" style="margin:6px 0 10px;color:#64748b">https://docs.google.com/spreadsheets/d/...</div>
+      <button class="mock-button">Muat Preview Sheet</button>
+
+      <div style="margin-top:18px;padding:12px;background:#f8fafc;border-radius:8px">
+        <strong>Atau jelaskan kepada AI</strong>
+        <p style="font-size:12px">“Buat bot screenshot report OLT setiap jam 8 pagi, kirim ke grup ISP dan Posko.”</p>
+        <button class="mock-button">Buat Draft Konfigurasi</button>
+      </div>
+
+      <div style="display:flex;justify-content:space-between;margin-top:22px">
+        <button class="mock-button" style="opacity:.55">Batal</button>
+        <button class="mock-button">Lanjut Pilih Area →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="mockup" style="margin-top:20px">
+  <div class="mockup-header">Langkah 2: Pilih Area Screenshot</div>
+  <div class="mockup-body">
+    <div style="display:grid;grid-template-columns:2.2fr 1fr;gap:18px">
+      <div>
+        <div style="height:260px;background:
+          linear-gradient(rgba(148,163,184,.28) 1px,transparent 1px),
+          linear-gradient(90deg,rgba(148,163,184,.28) 1px,transparent 1px),
+          #ffffff;background-size:48px 28px;position:relative;border:1px solid #94a3b8;border-radius:8px;overflow:hidden">
+          <div style="position:absolute;left:80px;top:48px;width:360px;height:150px;border:3px solid #2563eb;background:rgba(37,99,235,.12)">
+            <span style="position:absolute;right:5px;top:5px;background:#2563eb;color:white;padding:3px 7px;border-radius:4px;font-size:11px">Area dipilih</span>
+          </div>
+          <div style="position:absolute;bottom:8px;left:8px;background:white;padding:4px 8px;border-radius:4px;font-size:11px">Drag untuk memilih · Zoom 100%</div>
+        </div>
+      </div>
+      <div>
+        <h3 style="margin-top:0">Pengaturan Area</h3>
+        <p style="font-size:13px">Koordinat diisi otomatis dari area yang dipilih.</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <div class="mock-input">X: 80</div>
+          <div class="mock-input">Y: 48</div>
+          <div class="mock-input">Lebar: 360</div>
+          <div class="mock-input">Tinggi: 150</div>
+        </div>
+        <button class="mock-button" style="margin-top:12px">Ambil Preview Screenshot</button>
+        <p style="font-size:12px;color:#64748b">Area dapat disesuaikan kembali kapan saja tanpa mengubah bot lain.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:20px">
+  <div class="label">Aturan aktivasi</div>
+  <p>Bot hanya dapat diaktifkan setelah test screenshot dan test kirim WhatsApp berhasil. Draft AI tidak pernah langsung aktif.</p>
+</div>
+
+<h3>Apakah struktur halaman dan alur wizard ini sudah sesuai?</h3>
+<div class="options">
+  <div class="option" data-choice="wizard-approved" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Setuju</h3>
+      <p>Lanjut ke model konfigurasi, scheduler, dan proses eksekusi bot.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="wizard-revise" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Perlu perubahan</h3>
+      <p>Sampaikan langkah atau tampilan yang perlu disesuaikan di chat.</p>
+    </div>
+  </div>
+</div>
