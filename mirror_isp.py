@@ -341,7 +341,7 @@ def format_baris_down(no, info, mapping_metadata):
     k3 = str(metadata.get("k3", "") or "").strip() or "0"
 
     return (
-        f"{no}. | {district} | {hostname} | {durasi_down} | "
+        f"{no}. {district} | {hostname} | {durasi_down} | "
         f"{severity_tampil} | {node_b} | {olo} | {k2} | {k3} | {id_pln}"
     )
 
