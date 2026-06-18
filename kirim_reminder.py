@@ -122,8 +122,8 @@ def main():
         }
         
         # Aturan Reminder:
-        # H-30: antara 0 sampai 30 hari (diingatkan setiap hari)
-        if 0 <= days_left <= 30:
+        # H-30 & Expired: <= 30 hari (diingatkan setiap hari)
+        if days_left <= 30:
             h30_items.append(item)
         # H-90: antara 31 sampai 90 hari (diingatkan setiap minggu, yaitu hari Senin)
         elif 30 < days_left <= 90:
@@ -135,8 +135,8 @@ def main():
     # 1. Kirim Pesan H-30 (Harian)
     # ==========================
     if h30_items:
-        pesan = "⚠️ *REMINDER H-30 HABIS KONTRAK* ⚠️\n"
-        pesan += "Berikut adalah daftar perangkat/alpro yang kontraknya akan habis dalam 30 hari ke depan:\n\n"
+        pesan = "⚠️ *REMINDER H-30 & EXPIRED KONTRAK* ⚠️\n"
+        pesan += "Berikut adalah daftar perangkat/alpro yang kontraknya sudah habis atau akan habis dalam 30 hari ke depan:\n\n"
         
         # Kelompokkan berdasarkan distrik agar lebih rapi
         grouped_h30 = {}
@@ -146,8 +146,15 @@ def main():
         for dist, items in grouped_h30.items():
             pesan += f"📍 *{dist}*\n"
             for it in items:
+                if it['days_left'] < 0:
+                    status = f"Sudah Expired {-it['days_left']} hari lalu"
+                elif it['days_left'] == 0:
+                    status = "Habis Hari Ini"
+                else:
+                    status = f"{it['days_left']} hari lagi"
+                
                 pesan += f"   ⚙️ {it['perangkat']}\n"
-                pesan += f"   ⏳ {it['tgl']} ({it['days_left']} hari lagi)\n"
+                pesan += f"   ⏳ {it['tgl']} ({status})\n"
             pesan += "\n"
         
         pesan += "Mohon segera ditindaklanjuti. Terima kasih."
