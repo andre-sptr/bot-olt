@@ -12,8 +12,8 @@ from oauth2client.service_account import ServiceAccountCredentials
 WAHA_URL = "https://waha-dutxvo095iqn.cgk-lab.sumopod.my.id"
 WAHA_SESSION = "OLTReport"
 WAHA_API_KEY = "ROpWNPkTUavqEbnz5zKU4mTiL0HIZoye"
-# 120363425048343238@g.us = real
 # 120363423984319917@g.us = test
+# 120363425048343238@g.us = real
 GROUP_ID_TUJUAN = [
     # "120363423984319917@g.us",  # test
     "120363425048343238@g.us", # real
@@ -41,10 +41,11 @@ IDX = dict(L=11, Q=16, R=17, S=18, T=19, W=22, Z=25, AC=28,
            AF=31, AG=32, AH=33, AI=34, AJ=35, AK=36, AL=37)
 
 # Pemetaan: tiap tabel target -> range tulis + urutan kolom sumber
+# Tiap range mencakup 5 distrik + 1 baris SUMBAGTENG (regional = TOTAL) di bawah PEKANBARU.
 TABEL_TULIS = [
-    {"range": "C5:G9",   "kolom": ["L", "Q", "R", "S", "T"]},                # VALINS SERVICE
-    {"range": "C14:I18", "kolom": ["W", "Z", "AC", "AF", "AG", "AH", "AI"]}, # VALIDASI INFRA FTTH
-    {"range": "C24:E28", "kolom": ["AJ", "AK", "AL"]},                       # VALIDASI DATA INVENTORY
+    {"range": "C5:G10",  "kolom": ["L", "Q", "R", "S", "T"]},                # VALINS SERVICE
+    {"range": "C14:I19", "kolom": ["W", "Z", "AC", "AF", "AG", "AH", "AI"]}, # VALIDASI INFRA FTTH
+    {"range": "C24:E29", "kolom": ["AJ", "AK", "AL"]},                       # VALIDASI DATA INVENTORY
 ]
 
 # Spesifikasi tiap pesan/screenshot (1 per 1)
@@ -56,7 +57,7 @@ TABEL_TULIS = [
 PESAN = [
     {
         "judul": "VALINS SERVICE",
-        "range": "B3:G9",
+        "range": "B3:G10",
         "nomor": "1",
         "utama": ("VALIDASI SERVICE FTTH", "R"),
         "sub": [
@@ -66,7 +67,7 @@ PESAN = [
     },
     {
         "judul": "VALIDASI INFRA FTTH",
-        "range": "B12:I18",
+        "range": "B12:I19",
         "nomor": "2",
         "utama": ("VALIDASI INFRA FTTH", "AG"),
         "sub": [
@@ -78,7 +79,7 @@ PESAN = [
     },
     {
         "judul": "VALIDASI DATA INVENTORY ACCESS 2026",
-        "range": "B22:E28",
+        "range": "B22:E29",
         "nomor": "3",
         "utama": ("VALIDASI DATA INVENTORY ACCESS 2026", "AJ"),
         "sub": [],
@@ -177,10 +178,12 @@ def baca_dashboard(ss):
 
 
 def tulis_ke_tabel(ss, data):
-    """Tulis 15 kolom x 5 distrik (blok terbaru) ke 3 tabel di TABEL BOT."""
+    """Tulis 15 kolom x (5 distrik + SUMBAGTENG) blok terbaru ke 3 tabel di TABEL BOT.
+    Baris SUMBAGTENG diisi dari baris TOTAL DASHBOARD AQI, di bawah PEKANBARU."""
     tgt = ss.get_worksheet_by_id(TARGET_GID)
     vals = data["vals"]
     rows = data["rows_terbaru"]
+    r_total = rows.get("TOTAL")
 
     payload = []
     for tabel in TABEL_TULIS:
@@ -188,6 +191,8 @@ def tulis_ke_tabel(ss, data):
         for d in DISTRICTS:
             r = rows[d]
             nilai.append([_cell(vals, r, IDX[k]) for k in tabel["kolom"]])
+        # Baris regional SUMBAGTENG (= TOTAL); kosong jika TOTAL tak ditemukan.
+        nilai.append([_cell(vals, r_total, IDX[k]) if r_total else "" for k in tabel["kolom"]])
         payload.append({"range": tabel["range"], "values": nilai})
 
     tgt.batch_update(payload, value_input_option="USER_ENTERED")
