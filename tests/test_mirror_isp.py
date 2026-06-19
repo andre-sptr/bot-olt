@@ -1,4 +1,28 @@
+import asyncio
+import sys
+from datetime import datetime
+from types import SimpleNamespace
 from unittest import TestCase, mock
+
+
+class _FakeTelegramClient:
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def on(self, *args, **kwargs):
+        def decorator(func):
+            return func
+
+        return decorator
+
+
+sys.modules.setdefault(
+    "telethon",
+    SimpleNamespace(
+        TelegramClient=_FakeTelegramClient,
+        events=SimpleNamespace(NewMessage=lambda *args, **kwargs: object()),
+    ),
+)
 
 import mirror_isp as mi
 
@@ -106,7 +130,7 @@ class TestFormatBarisDown(TestCase):
         self.assertEqual(
             baris,
             "1. DUMAI | GPON00-D1-AMK-2UKUI | 01:30 | "
-            "\U0001f7e5 Critical | NodeB-123 | OLO1 | K2A | K3A | PLN-456 | DH",
+            "\U0001f7e5 Critical | NodeB-123 | OLO1 | K2A | K3A | DH | -",
         )
 
     def test_format_shows_non_for_non_dualhoming(self):
@@ -118,10 +142,11 @@ class TestFormatBarisDown(TestCase):
                 "k2": "0",
                 "k3": "0",
                 "dh": "NON",
+                "ds": "NOK",
             }
         }
         baris = mi.format_baris_down(1, info, metadata)
-        self.assertTrue(baris.endswith("| NON"))
+        self.assertTrue(baris.endswith("| NON | NOK"))
 
     def test_format_dh_dash_when_metadata_none(self):
         """When metadata sheet fails entirely, DH should be '-'."""
@@ -160,18 +185,56 @@ class TestFormatBarisDown(TestCase):
         self.assertIn("\u2b50 Very Low", baris)
 
 
+class TestHipotesaDown(TestCase):
+    def setUp(self):
+        self.data_pln_down_lama = mi.data_pln_down.copy()
+        mi.data_pln_down.clear()
+
+    def tearDown(self):
+        mi.data_pln_down.clear()
+        mi.data_pln_down.update(self.data_pln_down_lama)
+
+    def test_kabel_cut_when_pln_and_gpon_start_within_five_minutes(self):
+        mi.data_pln_down["PLN00-D1-SGD-2TMP"] = (
+            "PEKANBARU | PLN00-D1-SGD-2TMP | 01:58 | 1 | ID-PLN"
+        )
+
+        hipotesa = mi.tentukan_hipotesa_down(
+            "GPON00-D1-SGD-2TMP",
+            "01:55",
+        )
+
+        self.assertEqual(hipotesa, "Kabel CUT")
+
+    def test_battery_exhausted_when_pln_started_more_than_five_minutes_before_gpon(self):
+        mi.data_pln_down["PLN00-D1-BAG-3KYM"] = (
+            "DUMAI | PLN00-D1-BAG-3KYM | 03:20 | 0 | ID-PLN"
+        )
+
+        hipotesa = mi.tentukan_hipotesa_down(
+            "GPON00-D1-BAG-3KYM",
+            "00:10",
+        )
+
+        self.assertEqual(hipotesa, "Baterai Habis dan OLT DOWN")
+
+
 class TestBuatLaporanList(TestCase):
     def setUp(self):
         self.data_down_lama = mi.data_gpon_down.copy()
         self.data_up_lama = mi.data_gpon_up.copy()
+        self.data_pln_down_lama = mi.data_pln_down.copy()
         mi.data_gpon_down.clear()
         mi.data_gpon_up.clear()
+        mi.data_pln_down.clear()
 
     def tearDown(self):
         mi.data_gpon_down.clear()
         mi.data_gpon_down.update(self.data_down_lama)
         mi.data_gpon_up.clear()
         mi.data_gpon_up.update(self.data_up_lama)
+        mi.data_pln_down.clear()
+        mi.data_pln_down.update(self.data_pln_down_lama)
 
     def test_header_includes_dh(self):
         mi.data_gpon_down["GPON00-D1-ARK-3SGA"] = (
@@ -187,29 +250,38 @@ class TestBuatLaporanList(TestCase):
             }
         }
         laporan = mi.buat_laporan_list(metadata)
+        self.assertTrue(laporan.startswith("\U0001f4e1 *OLT DOWN*\n"))
         self.assertIn(
-            "NO | DISTRICT | HOSTNAME | DURASI DOWN | SEVERITY | "
-            "NodeB | OLO | K2 | K3 | IdPLN | DH",
+            "DH/DS    : DH / -",
             laporan,
         )
 
-    def test_laporan_row_includes_dh_value(self):
-        mi.data_gpon_down["GPON00-D1-ARK-3SGA"] = (
-            "BATAM | GPON00-D1-ARK-3SGA | 00:15 | NB-1 | ID-1"
+    def test_laporan_row_includes_dh_ds_and_hypothesis(self):
+        mi.data_gpon_down["GPON00-D1-BAG-3KYM"] = (
+            "DUMAI | GPON00-D1-BAG-3KYM | 00:10 | 0 | ID-1"
+        )
+        mi.data_pln_down["PLN00-D1-BAG-3KYM"] = (
+            "DUMAI | PLN00-D1-BAG-3KYM | 03:20 | 0 | ID-1"
         )
         metadata = {
-            "GPON00-D1-ARK-3SGA": {
-                "severity": "Minor",
+            "GPON00-D1-BAG-3KYM": {
+                "severity": "",
                 "olo": "0",
                 "k2": "0",
                 "k3": "0",
-                "dh": "DH",
+                "dh": "NON",
+                "ds": "NOK",
             }
         }
         laporan = mi.buat_laporan_list(metadata)
         self.assertIn(
-            "1. BATAM | GPON00-D1-ARK-3SGA | 00:15 | "
-            "\U0001f7e0 Minor | NB-1 | 0 | 0 | 0 | ID-1 | DH",
+            "*1. DUMAI*\n"
+            "`GPON00-D1-BAG-3KYM`\n"
+            "Durasi   : 00:10\n"
+            "Severity : \u2b50 Very Low\n"
+            "Impact   : NodeB 0 | OLO 0 | K2 0 | K3 0\n"
+            "DH/DS    : NON / NOK\n"
+            "Hipotesa : Baterai Habis dan OLT DOWN",
             laporan,
         )
 
@@ -231,11 +303,64 @@ class TestBuatLaporanList(TestCase):
 
         # mapping_metadata = None -> severity="-", dh="-"
         self.assertIn(
-            "1. PADANG | GPON00-D1-UNKNOWN | 10 Menit | "
-            "- | NB-2 | 0 | 0 | 0 | ID-2 | -",
+            "*1. PADANG*\n"
+            "`GPON00-D1-UNKNOWN`\n"
+            "Durasi   : 10 Menit\n"
+            "Severity : -\n"
+            "Impact   : NodeB NB-2 | OLO 0 | K2 0 | K3 0\n"
+            "DH/DS    : - / -\n"
+            "Hipotesa : Kabel CUT",
             laporan,
         )
         log_messages = [call.args[0] for call in simpan_log_mock.call_args_list]
         self.assertTrue(
             any("menggunakan '-'" in msg for msg in log_messages)
         )
+
+
+class TestProsesPesanBaru(TestCase):
+    def setUp(self):
+        self.data_down_lama = mi.data_gpon_down.copy()
+        self.data_up_lama = mi.data_gpon_up.copy()
+        self.data_down_meta_lama = mi.data_gpon_down_meta.copy()
+        self.data_pln_down_lama = mi.data_pln_down.copy()
+        self.data_pln_down_meta_lama = mi.data_pln_down_meta.copy()
+        mi.data_gpon_down.clear()
+        mi.data_gpon_up.clear()
+        mi.data_gpon_down_meta.clear()
+        mi.data_pln_down.clear()
+        mi.data_pln_down_meta.clear()
+
+    def tearDown(self):
+        mi.data_gpon_down.clear()
+        mi.data_gpon_down.update(self.data_down_lama)
+        mi.data_gpon_up.clear()
+        mi.data_gpon_up.update(self.data_up_lama)
+        mi.data_gpon_down_meta.clear()
+        mi.data_gpon_down_meta.update(self.data_down_meta_lama)
+        mi.data_pln_down.clear()
+        mi.data_pln_down.update(self.data_pln_down_lama)
+        mi.data_pln_down_meta.clear()
+        mi.data_pln_down_meta.update(self.data_pln_down_meta_lama)
+
+    def test_gpon_down_line_with_id_pln_field_is_still_recorded(self):
+        event = SimpleNamespace(
+            text=(
+                "!PROGRAM ZERO GAMAS OLT!\n"
+                "- DISTRICT PEKANBARU\n"
+                "GPON00-D1-AMK-2KMT | 01:55 | 1 | PLN-456\n"
+                "PLN00-D1-AMK-2KMT | 01:55 | 1 | PLN-456"
+            ),
+            date=datetime(2026, 6, 19, 10, 0),
+        )
+
+        with (
+            mock.patch.object(mi, "ambil_mapping_metadata", return_value={}),
+            mock.patch.object(mi, "simpan_ke_file_laporan"),
+            mock.patch.object(mi, "kirim_pesan_wa"),
+            mock.patch.object(mi, "simpan_log"),
+        ):
+            asyncio.run(mi.proses_pesan_baru(event))
+
+        self.assertIn("GPON00-D1-AMK-2KMT", mi.data_gpon_down)
+        self.assertIn("PLN00-D1-AMK-2KMT", mi.data_pln_down)

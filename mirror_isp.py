@@ -1,5 +1,5 @@
 from telethon import TelegramClient, events
-from datetime import datetime
+from datetime import datetime, timedelta
 import requests
 import os
 import re
@@ -94,8 +94,17 @@ client = TelegramClient('sesi_mirror_isp', api_id, api_hash)
 
 data_gpon_down = {}
 data_gpon_up = {}
+data_gpon_down_meta = {}
+data_pln_down = {}
+data_pln_down_meta = {}
 
 tanggal_data_sekarang = datetime.now().strftime("%Y-%m-%d")
+
+BATAS_JEDA_PLN_GPON_MENIT = 5
+HIPOTESA_KABEL_CUT = "Kabel CUT"
+HIPOTESA_BATERAI_HABIS = "Baterai Habis dan OLT DOWN"
+JUDUL_OLT_DOWN = "\U0001f4e1 *OLT DOWN*"
+JUDUL_OLT_UP = "\u2705 *OLT UP*"
 
 
 def nama_file_log():
@@ -183,6 +192,105 @@ def durasi_ke_menit(durasi):
     if cocok_menit_teks:
         total_menit += int(cocok_menit_teks.group(1))
     return total_menit
+
+
+def hostname_pln_dari_gpon(hostname):
+    hostname = normalisasi_hostname(hostname)
+    if hostname.startswith("GPON"):
+        return "PLN" + hostname[4:]
+    return hostname
+
+
+def hostname_gpon_dari_pln(hostname):
+    hostname = normalisasi_hostname(hostname)
+    if hostname.startswith("PLN"):
+        return "GPON" + hostname[3:]
+    return hostname
+
+
+def ambil_durasi_dari_info(info):
+    if isinstance(info, dict):
+        return str(info.get("duration") or info.get("durasi") or "").strip()
+
+    bagian = [nilai.strip() for nilai in str(info or "").split("|")]
+    bagian += [""] * (3 - len(bagian))
+    return bagian[2]
+
+
+def normalisasi_waktu(waktu):
+    if waktu is None:
+        return None
+    if getattr(waktu, "tzinfo", None) is not None:
+        return waktu.replace(tzinfo=None)
+    return waktu
+
+
+def waktu_mulai_alarm(waktu_pesan, durasi):
+    total_menit = durasi_ke_menit(durasi)
+    waktu_pesan = normalisasi_waktu(waktu_pesan)
+    if total_menit is None or waktu_pesan is None:
+        return None
+    return waktu_pesan - timedelta(minutes=total_menit)
+
+
+def simpan_alarm_down(data_down, data_meta, hostname, info, waktu_pesan):
+    hostname = normalisasi_hostname(hostname)
+    data_down[hostname] = info
+    durasi = ambil_durasi_dari_info(info)
+    data_meta[hostname] = {
+        "duration": durasi,
+        "started_at": waktu_mulai_alarm(waktu_pesan, durasi),
+    }
+
+
+def hapus_alarm_down(data_down, data_meta, hostname):
+    hostname = normalisasi_hostname(hostname)
+    data_down.pop(hostname, None)
+    data_meta.pop(hostname, None)
+
+
+def tentukan_hipotesa_down(
+    hostname_gpon,
+    durasi_gpon=None,
+    waktu_mulai_gpon=None,
+    data_pln=None,
+):
+    hostname_gpon = normalisasi_hostname(hostname_gpon)
+    hostname_pln = hostname_pln_dari_gpon(hostname_gpon)
+    sumber_pln = data_pln_down if data_pln is None else data_pln
+    info_pln = sumber_pln.get(hostname_pln)
+
+    if not info_pln:
+        return HIPOTESA_KABEL_CUT
+
+    if waktu_mulai_gpon is None:
+        waktu_mulai_gpon = data_gpon_down_meta.get(hostname_gpon, {}).get("started_at")
+
+    waktu_mulai_pln = data_pln_down_meta.get(hostname_pln, {}).get("started_at")
+    if isinstance(info_pln, dict):
+        waktu_mulai_pln = info_pln.get("started_at") or waktu_mulai_pln
+
+    if waktu_mulai_gpon and waktu_mulai_pln:
+        selisih_menit = (
+            normalisasi_waktu(waktu_mulai_gpon) - normalisasi_waktu(waktu_mulai_pln)
+        ).total_seconds() / 60
+        if abs(selisih_menit) <= BATAS_JEDA_PLN_GPON_MENIT:
+            return HIPOTESA_KABEL_CUT
+        if selisih_menit > BATAS_JEDA_PLN_GPON_MENIT:
+            return HIPOTESA_BATERAI_HABIS
+        return HIPOTESA_KABEL_CUT
+
+    menit_gpon = durasi_ke_menit(durasi_gpon)
+    menit_pln = durasi_ke_menit(ambil_durasi_dari_info(info_pln))
+    if menit_gpon is None or menit_pln is None:
+        return HIPOTESA_KABEL_CUT
+
+    selisih_menit = menit_pln - menit_gpon
+    if abs(selisih_menit) <= BATAS_JEDA_PLN_GPON_MENIT:
+        return HIPOTESA_KABEL_CUT
+    if selisih_menit > BATAS_JEDA_PLN_GPON_MENIT:
+        return HIPOTESA_BATERAI_HABIS
+    return HIPOTESA_KABEL_CUT
 
 
 def ambil_olt_down_lebih_satu_jam(data_down=None, hostname_pemicu=None):
@@ -427,6 +535,55 @@ def format_baris_down(no, info, mapping_metadata):
     )
 
 
+def format_hipotesa_down(info):
+    bagian = [nilai.strip() for nilai in str(info or "").split("|")]
+    bagian += [""] * (3 - len(bagian))
+
+    hostname = normalisasi_hostname(bagian[1])
+    durasi_down = bagian[2]
+    hipotesa = tentukan_hipotesa_down(hostname, durasi_down)
+    return f"Hipotesa : {hipotesa}"
+
+
+def format_blok_down(no, info, mapping_metadata):
+    bagian = [nilai.strip() for nilai in str(info or "").split("|")]
+    bagian += [""] * (4 - len(bagian))
+
+    district = bagian[0] or "-"
+    hostname = normalisasi_hostname(bagian[1]) or "-"
+    durasi_down = bagian[2] or "-"
+    node_b = bagian[3] or "0"
+
+    if mapping_metadata is None:
+        severity_tampil = "-"
+        olo = "0"
+        k2 = "0"
+        k3 = "0"
+        dh = "-"
+        ds = "-"
+    else:
+        metadata = mapping_metadata.get(hostname, {})
+        severity = normalisasi_severity(metadata.get("severity", ""))
+        severity_tampil = EMOJI_SEVERITY.get(severity, "\u2b50 Very Low")
+        olo = str(metadata.get("olo", "") or "").strip() or "0"
+        k2 = str(metadata.get("k2", "") or "").strip() or "0"
+        k3 = str(metadata.get("k3", "") or "").strip() or "0"
+        dh = str(metadata.get("dh", "") or "").strip() or "-"
+        ds = str(metadata.get("ds", "") or "").strip() or "-"
+
+    return "\n".join(
+        [
+            f"*{no}. {district}*",
+            f"`{hostname}`",
+            f"Durasi   : {durasi_down}",
+            f"Severity : {severity_tampil}",
+            f"Impact   : NodeB {node_b} | OLO {olo} | K2 {k2} | K3 {k3}",
+            f"DH/DS    : {dh} / {ds}",
+            format_hipotesa_down(info),
+        ]
+    )
+
+
 def buat_laporan_list(mapping_metadata=None):
     if mapping_metadata is None:
         try:
@@ -441,20 +598,14 @@ def buat_laporan_list(mapping_metadata=None):
                 f"Gagal mengambil metadata OLT, menggunakan '-': {exc}"
             )
 
-    teks_laporan = "*OLT DOWN*\n"
-    teks_laporan += (
-        "NO | DISTRICT | HOSTNAME | DURASI DOWN | SEVERITY | "
-        "NodeB | OLO | K2 | K3 | DH | DS\n"
-        f"{GARIS_TABEL}\n"
-    )
+    teks_laporan = f"{JUDUL_OLT_DOWN}\n{GARIS_TABEL}\n"
     
     no = 1
     for hostname, info in data_gpon_down.items():
-        teks_laporan += format_baris_down(no, info, mapping_metadata) + "\n"
+        teks_laporan += format_blok_down(no, info, mapping_metadata) + "\n\n"
         no += 1
         
-    teks_laporan += "\n*OLT UP*\n"
-    teks_laporan += "NO | HOSTNAME | STATUS\n"
+    teks_laporan += f"{JUDUL_OLT_UP}\n"
     teks_laporan += f"{GARIS_TABEL}\n"
     
     no = 1
@@ -525,6 +676,7 @@ async def proses_pesan_baru(event):
         teks_pesan = event.text.strip() if event.text else ""
         teks_pesan_upper = teks_pesan.upper()
         baris_pesan = teks_pesan.split('\n')
+        waktu_pesan = getattr(event, "date", None) or datetime.now()
         
         ada_perubahan = False
         hostname_terupdate = set()
@@ -538,12 +690,35 @@ async def proses_pesan_baru(event):
                         nama_distrik = parts[1].strip().replace('*', '')
             
             for baris in baris_pesan:
+                if 'PLN' in baris.upper() and '|' in baris and 'NE/PLN' not in baris.upper():
+                    bagian = [b.strip() for b in baris.split('|')]
+                    if len(bagian) >= 1:
+                        hostname = normalisasi_hostname(bagian[0])
+                        if hostname.startswith("PLN"):
+                            data_gabungan = f"{nama_distrik} | {baris.strip()}"
+                            simpan_alarm_down(
+                                data_pln_down,
+                                data_pln_down_meta,
+                                hostname,
+                                data_gabungan,
+                                waktu_pesan,
+                            )
+
+                            if hostname_gpon_dari_pln(hostname) in data_gpon_down:
+                                ada_perubahan = True
+
                 if 'GPON' in baris.upper() and '|' in baris:
                     bagian = [b.strip() for b in baris.split('|')]
                     if len(bagian) >= 1:
                         hostname = normalisasi_hostname(bagian[0])
                         data_gabungan = f"{nama_distrik} | {baris.strip()}"
-                        data_gpon_down[hostname] = data_gabungan
+                        simpan_alarm_down(
+                            data_gpon_down,
+                            data_gpon_down_meta,
+                            hostname,
+                            data_gabungan,
+                            waktu_pesan,
+                        )
                         ada_perubahan = True
                         hostname_terupdate.add(hostname)
                         
@@ -561,7 +736,28 @@ async def proses_pesan_baru(event):
                         ada_perubahan = True
                         
                         if hostname in data_gpon_down:
-                            del data_gpon_down[hostname]
+                            hapus_alarm_down(
+                                data_gpon_down,
+                                data_gpon_down_meta,
+                                hostname,
+                            )
+
+                if 'PLN' in baris.upper() and '| UP' in baris.upper() and 'UPLINK' not in baris.upper():
+                    bagian = [b.strip() for b in baris.split('|')]
+                    hostname = next((b for b in bagian if 'PLN' in b.upper()), None)
+                    if hostname:
+                        hostname = normalisasi_hostname(hostname)
+                        if not hostname.startswith("PLN"):
+                            continue
+
+                        hapus_alarm_down(
+                            data_pln_down,
+                            data_pln_down_meta,
+                            hostname,
+                        )
+
+                        if hostname_gpon_dari_pln(hostname) in data_gpon_down:
+                            ada_perubahan = True
 
         if ada_perubahan:
             simpan_log("🔔 Perubahan data GPON terdeteksi. Memperbarui laporan...")
