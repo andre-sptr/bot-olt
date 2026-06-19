@@ -28,11 +28,13 @@ WAHA_SESSION = "OLTReport"
 WAHA_API_KEY = "ROpWNPkTUavqEbnz5zKU4mTiL0HIZoye"
 # 120363425065142845@g.us = real
 # 120363423984319917@g.us = test
-GROUP_ISP = "120363425065142845@g.us"
+# 120363425065142845@g.us grup isp
+GROUP_ISP_POSKO = "120363427217043012@g.us"
+
 
 # PLN hanya kirim ke GROUP_ISP
 GROUP_ID_TUJUAN = [
-    GROUP_ISP,
+    GROUP_ISP_POSKO,
 ]
 
 # ================== KONFIGURASI ESKALASI (OFF by default) ==================
