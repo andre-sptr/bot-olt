@@ -103,8 +103,8 @@ tanggal_data_sekarang = datetime.now().strftime("%Y-%m-%d")
 BATAS_JEDA_PLN_GPON_MENIT = 5
 HIPOTESA_KABEL_CUT = "Kabel CUT"
 HIPOTESA_BATERAI_HABIS = "Baterai Habis dan OLT DOWN"
-JUDUL_OLT_DOWN = "\U0001f4e1 *OLT DOWN*"
-JUDUL_OLT_UP = "\u2705 *OLT UP*"
+JUDUL_OLT_DOWN = "*OLT DOWN*"
+JUDUL_OLT_UP = "*OLT UP*"
 
 
 def nama_file_log():
@@ -545,45 +545,6 @@ def format_hipotesa_down(info):
     return f"Hipotesa : {hipotesa}"
 
 
-def format_blok_down(no, info, mapping_metadata):
-    bagian = [nilai.strip() for nilai in str(info or "").split("|")]
-    bagian += [""] * (4 - len(bagian))
-
-    district = bagian[0] or "-"
-    hostname = normalisasi_hostname(bagian[1]) or "-"
-    durasi_down = bagian[2] or "-"
-    node_b = bagian[3] or "0"
-
-    if mapping_metadata is None:
-        severity_tampil = "-"
-        olo = "0"
-        k2 = "0"
-        k3 = "0"
-        dh = "-"
-        ds = "-"
-    else:
-        metadata = mapping_metadata.get(hostname, {})
-        severity = normalisasi_severity(metadata.get("severity", ""))
-        severity_tampil = EMOJI_SEVERITY.get(severity, "\u2b50 Very Low")
-        olo = str(metadata.get("olo", "") or "").strip() or "0"
-        k2 = str(metadata.get("k2", "") or "").strip() or "0"
-        k3 = str(metadata.get("k3", "") or "").strip() or "0"
-        dh = str(metadata.get("dh", "") or "").strip() or "-"
-        ds = str(metadata.get("ds", "") or "").strip() or "-"
-
-    return "\n".join(
-        [
-            f"*{no}. {district}*",
-            f"`{hostname}`",
-            f"Durasi   : {durasi_down}",
-            f"Severity : {severity_tampil}",
-            f"Impact   : NodeB {node_b} | OLO {olo} | K2 {k2} | K3 {k3}",
-            f"DH/DS    : {dh} / {ds}",
-            format_hipotesa_down(info),
-        ]
-    )
-
-
 def buat_laporan_list(mapping_metadata=None):
     if mapping_metadata is None:
         try:
@@ -598,14 +559,21 @@ def buat_laporan_list(mapping_metadata=None):
                 f"Gagal mengambil metadata OLT, menggunakan '-': {exc}"
             )
 
-    teks_laporan = f"{JUDUL_OLT_DOWN}\n{GARIS_TABEL}\n"
+    teks_laporan = f"{JUDUL_OLT_DOWN}\n"
+    teks_laporan += (
+        "NO | DISTRICT | HOSTNAME | DURASI DOWN | SEVERITY | "
+        "NodeB | OLO | K2 | K3 | DH | DS\n"
+        f"{GARIS_TABEL}\n"
+    )
     
     no = 1
     for hostname, info in data_gpon_down.items():
-        teks_laporan += format_blok_down(no, info, mapping_metadata) + "\n\n"
+        teks_laporan += format_baris_down(no, info, mapping_metadata) + "\n"
+        teks_laporan += format_hipotesa_down(info) + "\n"
         no += 1
         
     teks_laporan += f"{JUDUL_OLT_UP}\n"
+    teks_laporan += "NO | HOSTNAME | STATUS\n"
     teks_laporan += f"{GARIS_TABEL}\n"
     
     no = 1

@@ -250,9 +250,10 @@ class TestBuatLaporanList(TestCase):
             }
         }
         laporan = mi.buat_laporan_list(metadata)
-        self.assertTrue(laporan.startswith("\U0001f4e1 *OLT DOWN*\n"))
+        self.assertTrue(laporan.startswith("*OLT DOWN*\n"))
         self.assertIn(
-            "DH/DS    : DH / -",
+            "NO | DISTRICT | HOSTNAME | DURASI DOWN | SEVERITY | "
+            "NodeB | OLO | K2 | K3 | DH | DS",
             laporan,
         )
 
@@ -275,12 +276,8 @@ class TestBuatLaporanList(TestCase):
         }
         laporan = mi.buat_laporan_list(metadata)
         self.assertIn(
-            "*1. DUMAI*\n"
-            "`GPON00-D1-BAG-3KYM`\n"
-            "Durasi   : 00:10\n"
-            "Severity : \u2b50 Very Low\n"
-            "Impact   : NodeB 0 | OLO 0 | K2 0 | K3 0\n"
-            "DH/DS    : NON / NOK\n"
+            "1. DUMAI | GPON00-D1-BAG-3KYM | 00:10 | "
+            "\u2b50 Very Low | 0 | 0 | 0 | 0 | NON | NOK\n"
             "Hipotesa : Baterai Habis dan OLT DOWN",
             laporan,
         )
@@ -303,12 +300,8 @@ class TestBuatLaporanList(TestCase):
 
         # mapping_metadata = None -> severity="-", dh="-"
         self.assertIn(
-            "*1. PADANG*\n"
-            "`GPON00-D1-UNKNOWN`\n"
-            "Durasi   : 10 Menit\n"
-            "Severity : -\n"
-            "Impact   : NodeB NB-2 | OLO 0 | K2 0 | K3 0\n"
-            "DH/DS    : - / -\n"
+            "1. PADANG | GPON00-D1-UNKNOWN | 10 Menit | "
+            "- | NB-2 | 0 | 0 | 0 | - | -\n"
             "Hipotesa : Kabel CUT",
             laporan,
         )
