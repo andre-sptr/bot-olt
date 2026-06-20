@@ -566,6 +566,23 @@ def indeks_insiden_aktif(semua_nilai):
     return indeks
 
 
+def bangun_baris_realert_rekap(baris_lama, info, hostname, timestamp):
+    """Refresh kolom dinamis untuk re-alert tanpa menimpa metadata insiden."""
+    baris = [str(item or "").strip() for item in (baris_lama or [])]
+    baris += [""] * (14 - len(baris))
+    baris = baris[:14]
+
+    bagian = [nilai.strip() for nilai in str(info or "").split("|")]
+    bagian += [""] * (3 - len(bagian))
+    durasi_down = bagian[2] or "-"
+
+    baris[3] = durasi_down
+    baris[11] = tentukan_hipotesa_down(hostname, durasi_down)
+    baris[12] = "DOWN"
+    baris[13] = timestamp
+    return baris
+
+
 def rencana_tulis_rekap(semua_nilai, mapping_metadata, down_items, up_items, waktu):
     """Tentukan update in-place & baris append untuk rekap insiden OLT.
 
@@ -589,9 +606,8 @@ def rencana_tulis_rekap(semua_nilai, mapping_metadata, down_items, up_items, wak
         if hostname in aktif:
             nomor_baris = aktif[hostname]
             baris_lama = semua_nilai[nomor_baris - 1]
-            no_lama = str((baris_lama[0] if baris_lama else "") or no_berikutnya)
-            baris = bangun_baris_rekap(
-                no_lama, info, mapping_metadata, "DOWN", timestamp
+            baris = bangun_baris_realert_rekap(
+                baris_lama, info, hostname, timestamp
             )
             updates.append((nomor_baris, baris))
         else:

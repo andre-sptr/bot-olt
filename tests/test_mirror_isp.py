@@ -498,6 +498,36 @@ class TestRencanaTulisRekap(TestCase):
         self.assertEqual(baris[12], "DOWN")
         self.assertEqual(baris[13], "20/06/2026 07:38:24")
 
+    def test_re_alert_metadata_kosong_mempertahankan_metadata_baris_aktif(self):
+        mi.data_pln_down["PLN00-D1-BGU-3BGB"] = (
+            "DUMAI | PLN00-D1-BGU-3BGB | 01:05 | 0"
+        )
+        baris_lama = [
+            "42", "DUMAI", "GPON00-D1-BGU-3BGB", "00:10", "Critical",
+            "NodeB-Lama", "OLO-X", "K2-X", "K3-X", "DH", "DS-OK",
+            "Kabel CUT", "DOWN", "20/06/2026 07:00:00",
+        ]
+        semua_nilai = [mi.HEADER_REKAP, baris_lama]
+
+        updates, appends = mi.rencana_tulis_rekap(
+            semua_nilai, {},
+            ["PADANG | GPON00-D1-BGU-3BGB | 00:30 | NodeB-Baru"], [],
+            self.dt(2026, 6, 20, 7, 30, 0),
+        )
+
+        self.assertEqual(appends, [])
+        self.assertEqual(len(updates), 1)
+        nomor_baris, baris = updates[0]
+        self.assertEqual(nomor_baris, 2)
+        self.assertEqual(baris[0], baris_lama[0])
+        for indeks in (1, 2, 4, 5, 6, 7, 8, 9, 10):
+            with self.subTest(indeks=indeks):
+                self.assertEqual(baris[indeks], baris_lama[indeks])
+        self.assertEqual(baris[3], "00:30")
+        self.assertEqual(baris[11], "Baterai Habis dan OLT DOWN")
+        self.assertEqual(baris[12], "DOWN")
+        self.assertEqual(baris[13], "20/06/2026 07:30:00")
+
     def test_up_finalisasi_bekukan_durasi_total(self):
         baris_lama = ["1", "DUMAI", "GPON00-D1-BGU-3BGB", "05:30", "Very Low",
                       "0", "0", "0", "0", "NON", "NOK", "Kabel CUT",
