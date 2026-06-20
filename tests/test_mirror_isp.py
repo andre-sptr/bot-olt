@@ -625,3 +625,67 @@ class TestTulisRekapOlt(TestCase):
         with mock.patch.object(mi, "gspread") as gspread_mock:
             mi.tulis_rekap_olt({}, [], [], datetime(2026, 6, 20, 7, 0, 0))
         gspread_mock.authorize.assert_not_called()
+
+
+class TestHookRekapProsesPesan(TestCase):
+    def setUp(self):
+        self.snapshot = {
+            name: getattr(mi, name).copy()
+            for name in ("data_gpon_down", "data_gpon_up", "data_gpon_down_meta",
+                         "data_pln_down", "data_pln_down_meta")
+        }
+        for name in self.snapshot:
+            getattr(mi, name).clear()
+
+    def tearDown(self):
+        for name, nilai in self.snapshot.items():
+            getattr(mi, name).clear()
+            getattr(mi, name).update(nilai)
+
+    def test_event_down_memanggil_tulis_rekap_dengan_down_items(self):
+        event = SimpleNamespace(
+            text=(
+                "!PROGRAM ZERO GAMAS OLT!\n"
+                "- DISTRICT DUMAI\n"
+                "GPON00-D1-BGU-3BGB | 05:50 | 0"
+            ),
+            date=datetime(2026, 6, 20, 7, 8),
+        )
+        with (
+            mock.patch.object(mi, "ambil_mapping_metadata", return_value={}),
+            mock.patch.object(mi, "simpan_ke_file_laporan"),
+            mock.patch.object(mi, "kirim_pesan_wa"),
+            mock.patch.object(mi, "tulis_rekap_olt") as tulis_mock,
+            mock.patch.object(mi, "simpan_log"),
+        ):
+            asyncio.run(mi.proses_pesan_baru(event))
+
+        tulis_mock.assert_called_once()
+        down_items = tulis_mock.call_args.args[1]
+        self.assertTrue(any("GPON00-D1-BGU-3BGB" in s for s in down_items))
+
+    def test_event_up_mengirim_started_at(self):
+        # Pra-kondisi: OLT sedang down dengan started_at diketahui
+        mi.data_gpon_down["GPON00-D1-BGU-3BGB"] = (
+            "DUMAI | GPON00-D1-BGU-3BGB | 05:50 | 0"
+        )
+        mi.data_gpon_down_meta["GPON00-D1-BGU-3BGB"] = {
+            "duration": "05:50",
+            "started_at": datetime(2026, 6, 20, 1, 18),
+        }
+        event = SimpleNamespace(
+            text="GPON00-D1-BGU-3BGB | UP",
+            date=datetime(2026, 6, 20, 7, 8),
+        )
+        with (
+            mock.patch.object(mi, "ambil_mapping_metadata", return_value={}),
+            mock.patch.object(mi, "simpan_ke_file_laporan"),
+            mock.patch.object(mi, "kirim_pesan_wa"),
+            mock.patch.object(mi, "tulis_rekap_olt") as tulis_mock,
+            mock.patch.object(mi, "simpan_log"),
+        ):
+            asyncio.run(mi.proses_pesan_baru(event))
+
+        up_items = tulis_mock.call_args.args[2]
+        self.assertEqual(up_items[0]["hostname"], "GPON00-D1-BGU-3BGB")
+        self.assertEqual(up_items[0]["started_at"], datetime(2026, 6, 20, 1, 18))

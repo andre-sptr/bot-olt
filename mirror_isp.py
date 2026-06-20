@@ -803,6 +803,7 @@ async def proses_pesan_baru(event):
         
         ada_perubahan = False
         hostname_terupdate = set()
+        up_rekap_items = []
 
         if '!PROGRAM ZERO GAMAS OLT!' in teks_pesan_upper:
             nama_distrik = "UNKNOWN"
@@ -859,6 +860,13 @@ async def proses_pesan_baru(event):
                         ada_perubahan = True
                         
                         if hostname in data_gpon_down:
+                            started_at = data_gpon_down_meta.get(
+                                hostname, {}
+                            ).get("started_at")
+                            up_rekap_items.append({
+                                "hostname": hostname,
+                                "started_at": started_at,
+                            })
                             hapus_alarm_down(
                                 data_gpon_down,
                                 data_gpon_down_meta,
@@ -900,6 +908,22 @@ async def proses_pesan_baru(event):
             teks_laporan_baru = buat_laporan_list(mapping_metadata)
             simpan_ke_file_laporan(teks_laporan_baru)
             kirim_pesan_wa(teks_laporan_baru)
+
+            down_rekap_items = [
+                data_gpon_down[h]
+                for h in hostname_terupdate
+                if h in data_gpon_down
+            ]
+            if down_rekap_items or up_rekap_items:
+                try:
+                    tulis_rekap_olt(
+                        mapping_metadata,
+                        down_rekap_items,
+                        up_rekap_items,
+                        datetime.now(),
+                    )
+                except Exception as exc:
+                    simpan_log(f"❌ Gagal menulis rekap OLT ke Sheet: {exc}")
 
             daftar_eskalasi = ambil_olt_down_lebih_satu_jam(
                 hostname_pemicu=hostname_terupdate
