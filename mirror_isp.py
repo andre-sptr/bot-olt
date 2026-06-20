@@ -526,6 +526,31 @@ def ambil_mapping_metadata():
     return mapping
 
 
+def bangun_baris_rekap(no, info, mapping_metadata, status, timestamp):
+    """Bentuk satu baris rekap 14 kolom (A-N) untuk Google Sheet."""
+    bagian = [nilai.strip() for nilai in str(info or "").split("|")]
+    bagian += [""] * (4 - len(bagian))
+
+    district = bagian[0] or "-"
+    hostname = normalisasi_hostname(bagian[1]) or "-"
+    durasi_down = bagian[2] or "-"
+    node_b = bagian[3] or "0"
+
+    metadata = (mapping_metadata or {}).get(hostname, {})
+    severity = normalisasi_severity(metadata.get("severity", "")) or "Very Low"
+    olo = str(metadata.get("olo", "") or "").strip() or "0"
+    k2 = str(metadata.get("k2", "") or "").strip() or "0"
+    k3 = str(metadata.get("k3", "") or "").strip() or "0"
+    dh = str(metadata.get("dh", "") or "").strip() or "-"
+    ds = str(metadata.get("ds", "") or "").strip() or "-"
+    hipotesa = tentukan_hipotesa_down(hostname, durasi_down)
+
+    return [
+        str(no), district, hostname, durasi_down, severity,
+        node_b, olo, k2, k3, dh, ds, hipotesa, status, timestamp,
+    ]
+
+
 def format_baris_down(no, info, mapping_metadata):
     bagian = [nilai.strip() for nilai in str(info or "").split("|")]
     bagian += [""] * (4 - len(bagian))

@@ -389,3 +389,41 @@ class TestHelperRekap(TestCase):
         started = datetime(2026, 6, 20, 8, 0)
         up = datetime(2026, 6, 20, 7, 0)
         self.assertIsNone(mi.hitung_durasi_total(started, up))
+
+
+class TestBangunBarisRekap(TestCase):
+    def setUp(self):
+        self.data_pln_down_lama = mi.data_pln_down.copy()
+        mi.data_pln_down.clear()
+
+    def tearDown(self):
+        mi.data_pln_down.clear()
+        mi.data_pln_down.update(self.data_pln_down_lama)
+
+    def test_baris_down_lengkap_severity_polos(self):
+        info = "DUMAI | GPON00-D1-BGU-3BGB | 05:50 | 0"
+        metadata = {
+            "GPON00-D1-BGU-3BGB": {
+                "severity": "Very Low", "olo": "0", "k2": "0",
+                "k3": "0", "dh": "NON", "ds": "NOK",
+            }
+        }
+        baris = mi.bangun_baris_rekap(
+            1, info, metadata, "DOWN", "20/06/2026 07:08:24"
+        )
+        self.assertEqual(
+            baris,
+            ["1", "DUMAI", "GPON00-D1-BGU-3BGB", "05:50", "Very Low",
+             "0", "0", "0", "0", "NON", "NOK", "Kabel CUT",
+             "DOWN", "20/06/2026 07:08:24"],
+        )
+
+    def test_default_saat_metadata_kosong(self):
+        info = "PADANG | GPON00-D1-XYZ | 00:20 | NB"
+        baris = mi.bangun_baris_rekap(3, info, {}, "DOWN", "20/06/2026 08:00:00")
+        # severity default 'Very Low', olo/k2/k3 '0', dh/ds '-'
+        self.assertEqual(baris[0], "3")
+        self.assertEqual(baris[4], "Very Low")
+        self.assertEqual(baris[5], "NB")
+        self.assertEqual(baris[6:11], ["0", "0", "0", "-", "-"])
+        self.assertEqual(baris[12], "DOWN")
