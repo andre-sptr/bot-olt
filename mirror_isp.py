@@ -566,6 +566,58 @@ def indeks_insiden_aktif(semua_nilai):
     return indeks
 
 
+def rencana_tulis_rekap(semua_nilai, mapping_metadata, down_items, up_items, waktu):
+    """Tentukan update in-place & baris append untuk rekap insiden OLT.
+
+    Return (updates, appends):
+      updates = [(nomor_baris_1based, baris14), ...]
+      appends = [baris14, ...]
+    """
+    aktif = indeks_insiden_aktif(semua_nilai)
+    timestamp = format_timestamp_rekap(waktu)
+    no_berikutnya = len(semua_nilai)  # header(1)+data(D) -> NO baru = D+1 = len
+
+    updates = []
+    appends = []
+
+    for info in down_items or []:
+        bagian = [nilai.strip() for nilai in str(info or "").split("|")]
+        bagian += [""] * (2 - len(bagian))
+        hostname = normalisasi_hostname(bagian[1])
+        if not hostname:
+            continue
+        if hostname in aktif:
+            nomor_baris = aktif[hostname]
+            baris_lama = semua_nilai[nomor_baris - 1]
+            no_lama = str((baris_lama[0] if baris_lama else "") or no_berikutnya)
+            baris = bangun_baris_rekap(
+                no_lama, info, mapping_metadata, "DOWN", timestamp
+            )
+            updates.append((nomor_baris, baris))
+        else:
+            baris = bangun_baris_rekap(
+                no_berikutnya, info, mapping_metadata, "DOWN", timestamp
+            )
+            appends.append(baris)
+            no_berikutnya += 1
+
+    for item in up_items or []:
+        hostname = normalisasi_hostname(item.get("hostname"))
+        if not hostname or hostname not in aktif:
+            continue  # tak ada insiden aktif -> tak ada yang difinalisasi
+        nomor_baris = aktif[hostname]
+        baris = [str(x or "").strip() for x in semua_nilai[nomor_baris - 1]]
+        baris += [""] * (14 - len(baris))
+        durasi_total = hitung_durasi_total(item.get("started_at"), waktu)
+        if durasi_total:
+            baris[3] = durasi_total
+        baris[12] = "UP"
+        baris[13] = timestamp
+        updates.append((nomor_baris, baris))
+
+    return updates, appends
+
+
 def format_baris_down(no, info, mapping_metadata):
     bagian = [nilai.strip() for nilai in str(info or "").split("|")]
     bagian += [""] * (4 - len(bagian))

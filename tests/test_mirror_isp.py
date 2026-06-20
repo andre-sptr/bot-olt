@@ -446,3 +446,111 @@ class TestIndeksInsidenAktif(TestCase):
 
     def test_sheet_kosong_header_saja(self):
         self.assertEqual(mi.indeks_insiden_aktif([mi.HEADER_REKAP]), {})
+
+
+class TestRencanaTulisRekap(TestCase):
+    def setUp(self):
+        from datetime import datetime
+        self.dt = datetime
+        self.data_pln_down_lama = mi.data_pln_down.copy()
+        mi.data_pln_down.clear()
+        self.metadata = {
+            "GPON00-D1-BGU-3BGB": {
+                "severity": "Very Low", "olo": "0", "k2": "0",
+                "k3": "0", "dh": "NON", "ds": "NOK",
+            }
+        }
+
+    def tearDown(self):
+        mi.data_pln_down.clear()
+        mi.data_pln_down.update(self.data_pln_down_lama)
+
+    def test_down_baru_diappend_dengan_no_berurutan(self):
+        semua_nilai = [mi.HEADER_REKAP]
+        updates, appends = mi.rencana_tulis_rekap(
+            semua_nilai, self.metadata,
+            ["DUMAI | GPON00-D1-BGU-3BGB | 05:50 | 0"], [],
+            self.dt(2026, 6, 20, 7, 8, 24),
+        )
+        self.assertEqual(updates, [])
+        self.assertEqual(len(appends), 1)
+        self.assertEqual(appends[0][0], "1")            # NO
+        self.assertEqual(appends[0][3], "05:50")        # DURASI
+        self.assertEqual(appends[0][12], "DOWN")        # STATUS
+        self.assertEqual(appends[0][13], "20/06/2026 07:08:24")
+
+    def test_re_alert_update_in_place_pertahankan_no(self):
+        baris_lama = ["7", "DUMAI", "GPON00-D1-BGU-3BGB", "05:50", "Very Low",
+                      "0", "0", "0", "0", "NON", "NOK", "Kabel CUT",
+                      "DOWN", "20/06/2026 07:08:24"]
+        semua_nilai = [mi.HEADER_REKAP, baris_lama]
+        updates, appends = mi.rencana_tulis_rekap(
+            semua_nilai, self.metadata,
+            ["DUMAI | GPON00-D1-BGU-3BGB | 06:20 | 0"], [],
+            self.dt(2026, 6, 20, 7, 38, 24),
+        )
+        self.assertEqual(appends, [])
+        self.assertEqual(len(updates), 1)
+        nomor_baris, baris = updates[0]
+        self.assertEqual(nomor_baris, 2)
+        self.assertEqual(baris[0], "7")                 # NO dipertahankan
+        self.assertEqual(baris[3], "06:20")             # DURASI refresh
+        self.assertEqual(baris[12], "DOWN")
+        self.assertEqual(baris[13], "20/06/2026 07:38:24")
+
+    def test_up_finalisasi_bekukan_durasi_total(self):
+        baris_lama = ["1", "DUMAI", "GPON00-D1-BGU-3BGB", "05:30", "Very Low",
+                      "0", "0", "0", "0", "NON", "NOK", "Kabel CUT",
+                      "DOWN", "20/06/2026 06:50:00"]
+        semua_nilai = [mi.HEADER_REKAP, baris_lama]
+        updates, appends = mi.rencana_tulis_rekap(
+            semua_nilai, self.metadata, [],
+            [{"hostname": "GPON00-D1-BGU-3BGB",
+              "started_at": self.dt(2026, 6, 20, 1, 18, 24)}],
+            self.dt(2026, 6, 20, 7, 8, 24),
+        )
+        self.assertEqual(appends, [])
+        nomor_baris, baris = updates[0]
+        self.assertEqual(nomor_baris, 2)
+        self.assertEqual(baris[0], "1")                 # NO dipertahankan
+        self.assertEqual(baris[3], "05:50")             # total outage beku
+        self.assertEqual(baris[11], "Kabel CUT")        # HIPOTESA dipertahankan
+        self.assertEqual(baris[12], "UP")
+        self.assertEqual(baris[13], "20/06/2026 07:08:24")
+
+    def test_up_tanpa_started_at_pertahankan_durasi_lama(self):
+        baris_lama = ["1", "DUMAI", "GPON00-D1-BGU-3BGB", "06:20", "Very Low",
+                      "0", "0", "0", "0", "NON", "NOK", "Kabel CUT",
+                      "DOWN", "20/06/2026 06:50:00"]
+        semua_nilai = [mi.HEADER_REKAP, baris_lama]
+        updates, _ = mi.rencana_tulis_rekap(
+            semua_nilai, self.metadata, [],
+            [{"hostname": "GPON00-D1-BGU-3BGB", "started_at": None}],
+            self.dt(2026, 6, 20, 7, 8, 24),
+        )
+        _, baris = updates[0]
+        self.assertEqual(baris[3], "06:20")             # durasi lama dipertahankan
+        self.assertEqual(baris[12], "UP")
+
+    def test_up_yatim_dilewati(self):
+        updates, appends = mi.rencana_tulis_rekap(
+            [mi.HEADER_REKAP], self.metadata, [],
+            [{"hostname": "GPON00-TIDAK-ADA", "started_at": None}],
+            self.dt(2026, 6, 20, 7, 0, 0),
+        )
+        self.assertEqual((updates, appends), ([], []))
+
+    def test_down_lagi_setelah_up_append_baris_baru(self):
+        baris_up = ["1", "DUMAI", "GPON00-D1-BGU-3BGB", "05:50", "Very Low",
+                    "0", "0", "0", "0", "NON", "NOK", "Kabel CUT",
+                    "UP", "20/06/2026 07:08:24"]
+        semua_nilai = [mi.HEADER_REKAP, baris_up]
+        updates, appends = mi.rencana_tulis_rekap(
+            semua_nilai, self.metadata,
+            ["DUMAI | GPON00-D1-BGU-3BGB | 00:05 | 0"], [],
+            self.dt(2026, 6, 20, 14, 0, 0),
+        )
+        self.assertEqual(updates, [])
+        self.assertEqual(len(appends), 1)
+        self.assertEqual(appends[0][0], "2")            # NO berikutnya
+        self.assertEqual(appends[0][12], "DOWN")
