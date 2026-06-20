@@ -618,6 +618,46 @@ def rencana_tulis_rekap(semua_nilai, mapping_metadata, down_items, up_items, wak
     return updates, appends
 
 
+def tulis_rekap_olt(mapping_metadata, down_items, up_items, waktu):
+    """Tulis rekap insiden OLT ke tab GID_SHEET_REKAP (incident log)."""
+    if not down_items and not up_items:
+        return
+    if gspread is None or ServiceAccountCredentials is None:
+        simpan_log("Lewati tulis rekap OLT: dependency gspread/oauth2client belum ada")
+        return
+
+    scope = ["https://www.googleapis.com/auth/spreadsheets"]
+    credentials = ServiceAccountCredentials.from_json_keyfile_name(
+        FILE_KREDENSIAL_GOOGLE, scope
+    )
+    client_gs = gspread.authorize(credentials)
+    spreadsheet = client_gs.open_by_key(SPREADSHEET_ID_METADATA)
+    worksheet = spreadsheet.get_worksheet_by_id(GID_SHEET_REKAP)
+
+    semua_nilai = worksheet.get_all_values()
+    if not semua_nilai:
+        worksheet.append_row(HEADER_REKAP, value_input_option="RAW")
+        semua_nilai = [HEADER_REKAP]
+
+    updates, appends = rencana_tulis_rekap(
+        semua_nilai, mapping_metadata, down_items, up_items, waktu
+    )
+
+    if updates:
+        data = [
+            {"range": f"A{nomor_baris}:N{nomor_baris}", "values": [baris]}
+            for nomor_baris, baris in updates
+        ]
+        worksheet.batch_update(data, value_input_option="RAW")
+    if appends:
+        worksheet.append_rows(appends, value_input_option="RAW")
+
+    simpan_log(
+        f"✅ Rekap OLT Sheet diperbarui: {len(updates)} update, "
+        f"{len(appends)} baris baru (GID {GID_SHEET_REKAP})"
+    )
+
+
 def format_baris_down(no, info, mapping_metadata):
     bagian = [nilai.strip() for nilai in str(info or "").split("|")]
     bagian += [""] * (4 - len(bagian))

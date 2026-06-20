@@ -554,3 +554,74 @@ class TestRencanaTulisRekap(TestCase):
         self.assertEqual(len(appends), 1)
         self.assertEqual(appends[0][0], "2")            # NO berikutnya
         self.assertEqual(appends[0][12], "DOWN")
+
+
+class TestTulisRekapOlt(TestCase):
+    def setUp(self):
+        self.data_pln_down_lama = mi.data_pln_down.copy()
+        mi.data_pln_down.clear()
+
+    def tearDown(self):
+        mi.data_pln_down.clear()
+        mi.data_pln_down.update(self.data_pln_down_lama)
+
+    def _fake_worksheet(self, semua_nilai):
+        ws = mock.Mock()
+        ws.get_all_values.return_value = semua_nilai
+        return ws
+
+    def test_append_baris_baru_dan_header_saat_kosong(self):
+        from datetime import datetime
+        ws = self._fake_worksheet([])  # sheet benar-benar kosong
+        with (
+            mock.patch.object(mi, "gspread") as gspread_mock,
+            mock.patch.object(mi, "ServiceAccountCredentials"),
+            mock.patch.object(mi, "simpan_log"),
+        ):
+            (gspread_mock.authorize.return_value
+             .open_by_key.return_value
+             .get_worksheet_by_id.return_value) = ws
+            mi.tulis_rekap_olt(
+                {"GPON00-D1-BGU-3BGB": {"severity": "Very Low", "olo": "0",
+                 "k2": "0", "k3": "0", "dh": "NON", "ds": "NOK"}},
+                ["DUMAI | GPON00-D1-BGU-3BGB | 05:50 | 0"],
+                [],
+                datetime(2026, 6, 20, 7, 8, 24),
+            )
+        ws.append_row.assert_called_once_with(
+            mi.HEADER_REKAP, value_input_option="RAW"
+        )
+        ws.append_rows.assert_called_once()
+        baris_baru = ws.append_rows.call_args.args[0]
+        self.assertEqual(baris_baru[0][2], "GPON00-D1-BGU-3BGB")
+        self.assertEqual(baris_baru[0][12], "DOWN")
+
+    def test_update_in_place_pakai_batch_update(self):
+        from datetime import datetime
+        baris_lama = ["1", "DUMAI", "GPON00-D1-BGU-3BGB", "05:50", "Very Low",
+                      "0", "0", "0", "0", "NON", "NOK", "Kabel CUT",
+                      "DOWN", "20/06/2026 07:08:24"]
+        ws = self._fake_worksheet([mi.HEADER_REKAP, baris_lama])
+        with (
+            mock.patch.object(mi, "gspread") as gspread_mock,
+            mock.patch.object(mi, "ServiceAccountCredentials"),
+            mock.patch.object(mi, "simpan_log"),
+        ):
+            (gspread_mock.authorize.return_value
+             .open_by_key.return_value
+             .get_worksheet_by_id.return_value) = ws
+            mi.tulis_rekap_olt(
+                {}, ["DUMAI | GPON00-D1-BGU-3BGB | 06:20 | 0"], [],
+                datetime(2026, 6, 20, 7, 38, 24),
+            )
+        ws.append_rows.assert_not_called()
+        ws.batch_update.assert_called_once()
+        data = ws.batch_update.call_args.args[0]
+        self.assertEqual(data[0]["range"], "A2:N2")
+        self.assertEqual(data[0]["values"][0][3], "06:20")
+
+    def test_noop_saat_tidak_ada_item(self):
+        from datetime import datetime
+        with mock.patch.object(mi, "gspread") as gspread_mock:
+            mi.tulis_rekap_olt({}, [], [], datetime(2026, 6, 20, 7, 0, 0))
+        gspread_mock.authorize.assert_not_called()
