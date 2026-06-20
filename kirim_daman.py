@@ -37,16 +37,30 @@ BULAN = ["", "Januari", "Februari", "Maret", "April", "Mei", "Juni",
          "Juli", "Agustus", "September", "Oktober", "November", "Desember"]
 
 # Index kolom (0-based) di sheet sumber DASHBOARD AQI
+# BV/BW/BX = rekap REGION (REKAP KINERJA) untuk VALIDASI DATA INVENTORY ACCESS 2026.
 IDX = dict(L=11, Q=16, R=17, S=18, T=19, W=22, Z=25, AC=28,
-           AF=31, AG=32, AH=33, AI=34, AJ=35, AK=36, AL=37)
+           AF=31, AG=32, AH=33, AI=34, AJ=35, AK=36, AL=37,
+           BV=73, BW=74, BX=75)
+
+# Blok REGION ada di sisi kanan sheet sumber. Kolom label:
+#   AO (40) = NO  -> baris bertanda 'TOTAL' = AREA 1
+#   AQ (42) = REGIONAL TIF -> nama region (SUMBAGUT/SUMBAGTENG/SUMBAGSEL)
+COL_REGION_NO = 40
+COL_REGION_NAMA = 42
+REGIONS = ["SUMBAGUT", "SUMBAGTENG", "SUMBAGSEL"]      # + AREA1 (baris TOTAL)
+REGION_ORDER = ["SUMBAGUT", "SUMBAGTENG", "SUMBAGSEL", "AREA1"]
 
 # Pemetaan: tiap tabel target -> range tulis + urutan kolom sumber
 # Tiap range mencakup 5 distrik + 1 baris SUMBAGTENG (regional = TOTAL) di bawah PEKANBARU.
 TABEL_TULIS = [
     {"range": "C5:G10",  "kolom": ["L", "Q", "R", "S", "T"]},                # VALINS SERVICE
     {"range": "C14:I19", "kolom": ["W", "Z", "AC", "AF", "AG", "AH", "AI"]}, # VALIDASI INFRA FTTH
-    {"range": "C24:E29", "kolom": ["AJ", "AK", "AL"]},                       # VALIDASI DATA INVENTORY
+    {"range": "C24:E29", "kolom": ["AJ", "AK", "AL"]},                       # VALIDASI DATA INVENTORY (DISTRICT)
 ]
+
+# Tabel REGION (VALIDASI DATA INVENTORY ACCESS 2026 level region) -> C34:E37.
+# Baris: SUMBAGUT, SUMBAGTENG, SUMBAGSEL, AREA 1 (TOTAL). RANK (kolom F) = formula di sheet.
+TABEL_REGION = {"range": "C34:E37", "kolom": ["BV", "BW", "BX"]}
 
 # Spesifikasi tiap pesan/screenshot (1 per 1)
 #   judul   = nama tabel (judul di TABEL BOT)
@@ -79,9 +93,17 @@ PESAN = [
     },
     {
         "judul": "VALIDASI DATA INVENTORY ACCESS 2026",
-        "range": "B22:E29",
+        "range": "B22:F29",  # +kolom F (RANK)
         "nomor": "3",
         "utama": ("VALIDASI DATA INVENTORY ACCESS 2026", "AJ"),
+        "sub": [],
+    },
+    {
+        "judul": "VALIDASI DATA INVENTORY ACCESS 2026 (REGION)",
+        "range": "B32:F37",  # tabel region + kolom F (RANK)
+        "nomor": "4",
+        "tipe": "region",
+        "utama": ("VALIDASI DATA INVENTORY ACCESS 2026", "BV"),
         "sub": [],
     },
 ]
@@ -157,6 +179,18 @@ def baca_dashboard(ss):
                 peta["TOTAL"] = rr
         return peta
 
+    def peta_region(bstart):
+        """Peta baris REGION (sisi kanan sheet): SUMBAGUT/SUMBAGTENG/SUMBAGSEL
+        + AREA1 (baris bertanda 'TOTAL' di kolom AO)."""
+        peta = {}
+        for rr in range(bstart, bstart + 18):
+            nama = _cell(vals, rr, COL_REGION_NAMA)        # AQ = REGIONAL TIF
+            if nama in REGIONS:
+                peta[nama] = rr
+            if _cell(vals, rr, COL_REGION_NO) == "TOTAL":  # AO = TOTAL -> AREA 1
+                peta["AREA1"] = rr
+        return peta
+
     def tanggal(bstart):
         try:
             tgl = int(_cell(vals, bstart + 1, 1))
@@ -173,13 +207,16 @@ def baca_dashboard(ss):
         "vals": vals,
         "rows_terbaru": peta_baris(terbaru),
         "rows_sebelum": peta_baris(sebelum),
+        "regions_terbaru": peta_region(terbaru),
+        "regions_sebelum": peta_region(sebelum),
         "tanggal": tanggal(terbaru),
     }
 
 
 def tulis_ke_tabel(ss, data):
-    """Tulis 15 kolom x (5 distrik + SUMBAGTENG) blok terbaru ke 3 tabel di TABEL BOT.
-    Baris SUMBAGTENG diisi dari baris TOTAL DASHBOARD AQI, di bawah PEKANBARU."""
+    """Tulis blok terbaru ke 4 tabel di TABEL BOT (3 tabel distrik + 1 tabel region).
+    Baris SUMBAGTENG (tabel distrik) diisi dari baris TOTAL DASHBOARD AQI, di bawah PEKANBARU.
+    Tabel region diisi dari BV/BW/BX (SUMBAGUT/SUMBAGTENG/SUMBAGSEL/AREA 1)."""
     tgt = ss.get_worksheet_by_id(TARGET_GID)
     vals = data["vals"]
     rows = data["rows_terbaru"]
@@ -194,6 +231,14 @@ def tulis_ke_tabel(ss, data):
         # Baris regional SUMBAGTENG (= TOTAL); kosong jika TOTAL tak ditemukan.
         nilai.append([_cell(vals, r_total, IDX[k]) if r_total else "" for k in tabel["kolom"]])
         payload.append({"range": tabel["range"], "values": nilai})
+
+    # Tabel REGION: per region dari BV/BW/BX (RANK kolom F = formula, tidak ditulis).
+    regs = data["regions_terbaru"]
+    nilai_region = []
+    for rg in REGION_ORDER:
+        r = regs.get(rg)
+        nilai_region.append([_cell(vals, r, IDX[k]) if r else "" for k in TABEL_REGION["kolom"]])
+    payload.append({"range": TABEL_REGION["range"], "values": nilai_region})
 
     tgt.batch_update(payload, value_input_option="USER_ENTERED")
     total_sel = sum(len(p["values"]) * len(p["values"][0]) for p in payload)
@@ -244,6 +289,24 @@ def buat_caption(spesifikasi, data):
         out.append(f"  *• Sumbagteng : {st_cur}* {_tren(st_cur, st_prv)}".rstrip())
         return out
 
+    def blok_region(label_utama, kolom):
+        """Blok metrik level REGION: header = AREA 1 (TOTAL), lalu tiap region.
+        Sumbagteng di-bold (laporan Regional Sumbagteng)."""
+        out = []
+        rgc, rgp = data["regions_terbaru"], data["regions_sebelum"]
+        cur = _cell(vals, rgc["AREA1"], IDX[kolom]) if "AREA1" in rgc else ""
+        prv = _cell(vals, rgp["AREA1"], IDX[kolom]) if "AREA1" in rgp else ""
+        out.append(f"*{label_utama}* : {cur} {_tren(cur, prv)}".rstrip())
+        for rg in REGIONS:
+            c = _cell(vals, rgc[rg], IDX[kolom]) if rg in rgc else ""
+            p = _cell(vals, rgp[rg], IDX[kolom]) if rg in rgp else ""
+            label = rg.title()
+            if rg == "SUMBAGTENG":
+                out.append(f"  *• {label} : {c}* {_tren(c, p)}".rstrip())
+            else:
+                out.append(f"  • {label} : {c} {_tren(c, p)}".rstrip())
+        return out
+
     lines = []
     lines.append("📊 *REPORT PERFORMANSI DAMAN*")
     lines.append("📍 Regional Sumbagteng")
@@ -254,11 +317,13 @@ def buat_caption(spesifikasi, data):
 
     nomor = spesifikasi["nomor"]
     label_utama, kolom_utama = spesifikasi["utama"]
-    lines += blok_metrik(f"{nomor}. {label_utama}", kolom_utama)
-
-    for sub_label, sub_kolom in spesifikasi["sub"]:
-        lines.append("")
-        lines += blok_metrik(sub_label, sub_kolom)
+    if spesifikasi.get("tipe") == "region":
+        lines += blok_region(f"{nomor}. {label_utama}", kolom_utama)
+    else:
+        lines += blok_metrik(f"{nomor}. {label_utama}", kolom_utama)
+        for sub_label, sub_kolom in spesifikasi["sub"]:
+            lines.append("")
+            lines += blok_metrik(sub_label, sub_kolom)
 
     return "\n".join(lines)
 
