@@ -648,6 +648,14 @@ def tulis_ke_sheet(hasil, dry_run=False):
         return len(matriks), start_row
 
     ws.update(range_name=rng, values=matriks, value_input_option="USER_ENTERED")
+    # Kolom A (NO) di zona append mewarisi format DATE dari konten nyasar di bawah
+    # data riil -> angka NO bisa tampil sebagai tanggal (mis. 4243 jadi
+    # "Minggu, 13 Agustus 1911"). Paksa kolom A jadi angka bulat polos.
+    try:
+        ws.format(f"A{start_row}:A{end_row}",
+                  {"numberFormat": {"type": "NUMBER", "pattern": "0"}})
+    except Exception as e:
+        catat_log(f"Peringatan: gagal set format nomor kolom A: {e}")
     # samakan format tanggal kolom B agar tampil "Hari, d Bulan yyyy"
     try:
         ws.format(f"B{start_row}:B{end_row}",

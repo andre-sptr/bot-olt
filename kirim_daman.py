@@ -93,18 +93,20 @@ PESAN = [
     },
     {
         "judul": "VALIDASI DATA INVENTORY ACCESS 2026",
-        "range": "B22:F29",  # +kolom F (RANK)
+        "range": "B22:I29",  # tabel lengkap: MTD + YTD + RANK
         "nomor": "3",
         "utama": ("VALIDASI DATA INVENTORY ACCESS 2026", "AJ"),
         "sub": [],
+        "ytd_tipe": "district",
     },
     {
         "judul": "VALIDASI DATA INVENTORY ACCESS 2026 (REGION)",
-        "range": "B32:F37",  # tabel region + kolom F (RANK)
+        "range": "B32:I37",  # tabel lengkap: MTD + YTD + RANK
         "nomor": "4",
         "tipe": "region",
         "utama": ("VALIDASI DATA INVENTORY ACCESS 2026", "BV"),
         "sub": [],
+        "ytd_tipe": "region",
     },
 ]
 
@@ -244,6 +246,35 @@ def tulis_ke_tabel(ss, data):
     total_sel = sum(len(p["values"]) * len(p["values"][0]) for p in payload)
     catat_log(f"✅ Data blok '{data['tanggal']}' ditulis ke TABEL BOT ({total_sel} sel).")
 
+def _petakan_ytd_tabel(rows):
+    """Petakan baris Table Bot ke nilai YTD tampil: label -> real/target/ach/rank."""
+    hasil = {}
+    for row in rows:
+        padded = [str(x).strip() for x in row] + [""] * (8 - len(row))
+        label = padded[0].upper()
+        if not label:
+            continue
+        hasil[label] = {
+            "real": padded[4],
+            "target": padded[5],
+            "ach": padded[6],
+            "rank": padded[7],
+        }
+    return hasil
+
+
+def baca_tabel_bot_ytd(ss):
+    """Baca nilai YTD yang sudah dihitung formula di TABEL BOT."""
+    tgt = ss.get_worksheet_by_id(TARGET_GID)
+    return {
+        "district": _petakan_ytd_tabel(
+            tgt.get("B24:I29", value_render_option="FORMATTED_VALUE")
+        ),
+        "region": _petakan_ytd_tabel(
+            tgt.get("B34:I37", value_render_option="FORMATTED_VALUE")
+        ),
+    }
+
 
 # ====================================================================
 # CAPTION
@@ -270,6 +301,24 @@ def buat_caption(spesifikasi, data):
     """Bangun caption rapi (WhatsApp) untuk satu pesan/tabel."""
     vals = data["vals"]
     rc, rp = data["rows_terbaru"], data["rows_sebelum"]
+    ytd_tipe = spesifikasi.get("ytd_tipe")
+
+    def ambil_ytd(tipe, label):
+        if ytd_tipe != tipe:
+            return None
+        key = "AREA 1" if label == "AREA1" else str(label).upper()
+        return data.get("target_ytd", {}).get(tipe, {}).get(key)
+
+    def format_ytd(row, utama=False):
+        if not row or not row.get("real"):
+            return ""
+        parts = [row["real"]]
+        if row.get("target"):
+            parts.append(f"Target {row['target']}")
+        if row.get("ach"):
+            parts.append(f"Ach {row['ach']}")
+        prefix = "*YTD*" if utama else "YTD"
+        return f"{prefix} : " + " | ".join(parts)
 
     def baris(label, kolom, who):
         cur = _cell(vals, rc[who], IDX[kolom]) if who in rc else ""
@@ -281,12 +330,21 @@ def buat_caption(spesifikasi, data):
         cur = _cell(vals, rc["TOTAL"], IDX[kolom]) if "TOTAL" in rc else ""
         prv = _cell(vals, rp["TOTAL"], IDX[kolom]) if "TOTAL" in rp else ""
         out.append(f"*{label_utama}* : {cur} {_tren(cur, prv)}".rstrip())
+        ytd = format_ytd(ambil_ytd("district", "SUMBAGTENG"), utama=True)
+        if ytd:
+            out.append(ytd)
         for d in DISTRICTS:
+            ytd = format_ytd(ambil_ytd("district", d))
             out.append("  " + baris(f"• {d.title()}", kolom, d))
+            if ytd:
+                out.append("    " + ytd)
         # Baris regional di bawah PEKANBARU (di-bold), sejajar dengan tabel di gambar.
         st_cur = _cell(vals, rc["TOTAL"], IDX[kolom]) if "TOTAL" in rc else ""
         st_prv = _cell(vals, rp["TOTAL"], IDX[kolom]) if "TOTAL" in rp else ""
         out.append(f"  *• Sumbagteng : {st_cur}* {_tren(st_cur, st_prv)}".rstrip())
+        ytd = format_ytd(ambil_ytd("district", "SUMBAGTENG"))
+        if ytd:
+            out.append("    " + ytd)
         return out
 
     def blok_region(label_utama, kolom):
@@ -297,7 +355,11 @@ def buat_caption(spesifikasi, data):
         cur = _cell(vals, rgc["AREA1"], IDX[kolom]) if "AREA1" in rgc else ""
         prv = _cell(vals, rgp["AREA1"], IDX[kolom]) if "AREA1" in rgp else ""
         out.append(f"*{label_utama}* : {cur} {_tren(cur, prv)}".rstrip())
+        ytd = format_ytd(ambil_ytd("region", "AREA1"), utama=True)
+        if ytd:
+            out.append(ytd)
         for rg in REGIONS:
+            ytd = format_ytd(ambil_ytd("region", rg))
             c = _cell(vals, rgc[rg], IDX[kolom]) if rg in rgc else ""
             p = _cell(vals, rgp[rg], IDX[kolom]) if rg in rgp else ""
             label = rg.title()
@@ -305,6 +367,8 @@ def buat_caption(spesifikasi, data):
                 out.append(f"  *• {label} : {c}* {_tren(c, p)}".rstrip())
             else:
                 out.append(f"  • {label} : {c} {_tren(c, p)}".rstrip())
+            if ytd:
+                out.append("    " + ytd)
         return out
 
     lines = []
@@ -481,6 +545,13 @@ def tugas_harian():
 
     # beri jeda singkat agar perubahan tersimpan sebelum di-export
     time.sleep(3)
+
+    try:
+        data["target_ytd"] = baca_tabel_bot_ytd(ss)
+    except Exception as e:
+        catat_log(f"Gagal membaca data YTD dari TABEL BOT: {e}")
+        catat_log("=" * 50)
+        return
 
     for i, spec in enumerate(PESAN, start=1):
         path_ss = nama_file_ss(i)
