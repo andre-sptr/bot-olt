@@ -37,6 +37,25 @@ def get_google_sheet_data():
 def parse_date(date_str):
     if not date_str:
         return None
+    
+    # Translate nama bulan Indonesia ke English agar strptime bisa memproses
+    BULAN_ID_KE_EN = {
+        "Januari": "January", "Februari": "February", "Maret": "March",
+        "April": "April", "Mei": "May", "Juni": "June",
+        "Juli": "July", "Agustus": "August", "September": "September",
+        "Oktober": "October", "November": "November", "Desember": "December",
+        "Jan": "Jan", "Feb": "Feb", "Mar": "Mar", "Apr": "Apr",
+        "Mei": "May", "Jun": "Jun", "Jul": "Jul", "Agu": "Aug",
+        "Ags": "Aug", "Agt": "Aug", "Sep": "Sep", "Okt": "Oct",
+        "Nov": "Nov", "Des": "Dec",
+    }
+    
+    cleaned = date_str.strip()
+    for id_bulan, en_bulan in BULAN_ID_KE_EN.items():
+        if id_bulan in cleaned:
+            cleaned = cleaned.replace(id_bulan, en_bulan)
+            break
+    
     # Beberapa format tanggal yang mungkin ada di Google Sheets
     formats = [
         "%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%d-%m-%Y", 
@@ -44,7 +63,7 @@ def parse_date(date_str):
     ]
     for fmt in formats:
         try:
-            return datetime.strptime(date_str.strip(), fmt)
+            return datetime.strptime(cleaned, fmt)
         except ValueError:
             continue
     return None
