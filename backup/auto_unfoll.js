@@ -2,7 +2,7 @@
   const CONFIG = {
     keepUsernames: ["princess_ulel"],
     dryRun: false,
-    clickDelayMs: 7000,
+    clickDelayMs: 700,
     clickJitterMs: 500,
     confirmDelayMs: 150,
     scrollDelayMs: 500,
