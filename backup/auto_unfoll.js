@@ -2,14 +2,23 @@
   const CONFIG = {
     keepUsernames: ["princess_ulel"],
     dryRun: false,
-    clickDelayMs: 250,
-    confirmDelayMs: 150,
-    scrollDelayMs: 200,
-    maxActions: Infinity,
+    clickDelayMs: 1200,
+    clickJitterMs: 700,
+    confirmDelayMs: 300,
+    scrollDelayMs: 850,
+    scrollJitterMs: 500,
+    maxActions: 75,
+    pauseEveryActions: 25,
+    pauseMs: 15000,
+    networkWaitMs: 3000,
+    stopOnConsecutiveServerProblems: 2,
+    stopOnNetworkMisses: 3,
     stableRoundsToStop: 4
   };
 
   const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+  const jitter = max => Math.floor(Math.random() * Math.max(0, max || 0));
+  const pacedSleep = (base, random = 0) => sleep(base + jitter(random));
   const norm = value => String(value || "")
     .trim()
     .replace(/^@+/, "")
@@ -22,10 +31,16 @@
   const state = {
     stopped: false,
     seen: new Set(),
+    actions: 0,
     ok: 0,
     skip: 0,
     err: 0,
     dry: 0,
+    netOk: 0,
+    netWarn: 0,
+    netErr: 0,
+    netMiss: 0,
+    consecutiveServerProblems: 0,
     rounds: 0,
     started: new Date()
   };
@@ -90,6 +105,7 @@
     `URL: ${location.href}`,
     `Mode: ${CONFIG.dryRun ? "DRY_RUN (no clicks)" : "LIVE (will click unfollow)"}`,
     `Keep: ${[...keep].map(x => `@${x}`).join(", ")}`,
+    `Safety: maxActions=${CONFIG.maxActions}, clickDelay=${CONFIG.clickDelayMs}-${CONFIG.clickDelayMs + CONFIG.clickJitterMs}ms, pauseEvery=${CONFIG.pauseEveryActions}, pauseMs=${CONFIG.pauseMs}`,
     "",
     "status\tusername\tdetail"
   ];
@@ -107,7 +123,7 @@
     if (line) log.push(line);
     box.value = log.join("\n");
     box.scrollTop = box.scrollHeight;
-    document.title = `TT_UNFOLLOW ${state.ok}/${state.dry} SK${state.skip} ER${state.err}`;
+    document.title = `TT_UNFOLLOW A${state.actions} OK${state.ok} SK${state.skip} ER${state.err}`;
   }
 
   function isVisible(el) {
@@ -219,31 +235,262 @@
       });
   }
 
+  function installNetworkMonitor() {
+    if (window.__TT_UNFOLLOW_NET && window.__TT_UNFOLLOW_NET.version === 1) {
+      return window.__TT_UNFOLLOW_NET;
+    }
+
+    const monitor = {
+      version: 1,
+      results: [],
+      waiters: [],
+      record(result) {
+        this.results.push(result);
+        if (this.results.length > 120) this.results.shift();
+        this.waiters.slice().forEach(waiter => waiter());
+      },
+      waitForResult(afterIndex, timeoutMs) {
+        return new Promise(resolve => {
+          let done = false;
+
+          const finish = result => {
+            if (done) return;
+            done = true;
+            clearTimeout(timer);
+            this.waiters = this.waiters.filter(waiter => waiter !== check);
+            resolve(result || null);
+          };
+
+          const choose = final => {
+            const candidates = this.results.slice(afterIndex)
+              .filter(item => item && item.path === "/api/commit/follow/user/");
+            const definitive = candidates.find(item =>
+              item.error
+              || item.httpStatus >= 400
+              || item.statusCode !== null
+              || item.statusMsg
+            );
+
+            if (definitive) finish(definitive);
+            if (final && candidates.length) finish(candidates[candidates.length - 1]);
+            if (final) finish(null);
+          };
+
+          const check = () => choose(false);
+          const timer = setTimeout(() => choose(true), timeoutMs);
+          this.waiters.push(check);
+          check();
+        });
+      }
+    };
+
+    function safeText(value, limit = 500) {
+      return String(value || "").slice(0, limit);
+    }
+
+    function parseUrl(rawUrl) {
+      try {
+        const url = new URL(String(rawUrl), location.href);
+        return {
+          path: url.pathname,
+          type: url.searchParams.get("type"),
+          actionType: url.searchParams.get("action_type"),
+          userId: url.searchParams.get("user_id")
+        };
+      } catch {
+        return { path: String(rawUrl || ""), type: null, actionType: null, userId: null };
+      }
+    }
+
+    function parseJson(text) {
+      if (!text) return {};
+      try {
+        const json = JSON.parse(text);
+        return {
+          statusCode: json.status_code ?? json.statusCode ?? null,
+          followStatus: json.follow_status ?? json.followStatus ?? null,
+          statusMsg: json.status_msg || json.statusMsg || ""
+        };
+      } catch {
+        return {};
+      }
+    }
+
+    function shouldRecord(urlInfo) {
+      return urlInfo.path === "/api/commit/follow/user/";
+    }
+
+    const nativeFetch = window.fetch;
+    window.fetch = async function(input, init) {
+      const rawUrl = typeof input === "string" ? input : input && input.url;
+      const method = String((init && init.method) || (input && input.method) || "GET").toUpperCase();
+      const urlInfo = parseUrl(rawUrl);
+
+      try {
+        const response = await nativeFetch.apply(this, arguments);
+        if (shouldRecord(urlInfo)) {
+          const result = {
+            source: "fetch",
+            method,
+            httpStatus: response.status,
+            error: "",
+            responseText: "",
+            statusCode: null,
+            followStatus: null,
+            statusMsg: "",
+            ...urlInfo
+          };
+
+          response.clone().text()
+            .then(text => monitor.record({ ...result, responseText: safeText(text), ...parseJson(text) }))
+            .catch(error => monitor.record({ ...result, error: safeText(error) }));
+        }
+        return response;
+      } catch (error) {
+        if (shouldRecord(urlInfo)) {
+          monitor.record({
+            source: "fetch",
+            method,
+            httpStatus: 0,
+            error: safeText(error),
+            responseText: "",
+            statusCode: null,
+            followStatus: null,
+            statusMsg: "",
+            ...urlInfo
+          });
+        }
+        throw error;
+      }
+    };
+
+    const NativeXHR = window.XMLHttpRequest;
+    function WrappedXHR() {
+      const xhr = new NativeXHR();
+      const result = {
+        source: "xhr",
+        method: "GET",
+        httpStatus: 0,
+        error: "",
+        responseText: "",
+        statusCode: null,
+        followStatus: null,
+        statusMsg: "",
+        path: "",
+        type: null,
+        actionType: null,
+        userId: null
+      };
+
+      const nativeOpen = xhr.open;
+      xhr.open = function(method, url) {
+        Object.assign(result, parseUrl(url), { method: String(method || "GET").toUpperCase() });
+        return nativeOpen.apply(xhr, arguments);
+      };
+
+      const nativeSend = xhr.send;
+      xhr.send = function() {
+        xhr.addEventListener("loadend", () => {
+          if (!shouldRecord(result)) return;
+          let text = "";
+          try {
+            text = safeText(xhr.responseText || "");
+          } catch {}
+          monitor.record({
+            ...result,
+            httpStatus: xhr.status,
+            responseText: text,
+            ...parseJson(text)
+          });
+        });
+        return nativeSend.apply(xhr, arguments);
+      };
+
+      return xhr;
+    }
+
+    WrappedXHR.prototype = NativeXHR.prototype;
+    Object.setPrototypeOf(WrappedXHR, NativeXHR);
+    window.XMLHttpRequest = WrappedXHR;
+    window.__TT_UNFOLLOW_NET = monitor;
+    return monitor;
+  }
+
+  const networkMonitor = CONFIG.dryRun ? null : installNetworkMonitor();
+
+  function applyNetworkSafety(result, username) {
+    if (!result) {
+      state.netMiss++;
+      state.netWarn++;
+      update(`WARN\t@${username}\tno commit/follow response captured (${state.netMiss}/${CONFIG.stopOnNetworkMisses})`);
+
+      if (state.netMiss >= CONFIG.stopOnNetworkMisses) {
+        state.stopped = true;
+        update("STOP\tALL\tnetwork response missing repeatedly; verify manually before continuing");
+      }
+      return true;
+    }
+
+    state.netMiss = 0;
+
+    if (result.error || result.httpStatus < 200 || result.httpStatus >= 300) {
+      state.err++;
+      state.netErr++;
+      state.consecutiveServerProblems++;
+      update(`ERROR\t@${username}\tHTTP ${result.httpStatus || "failed"} ${result.error || ""}`.trim());
+      return false;
+    }
+
+    if (result.statusCode !== null && result.statusCode !== 0) {
+      state.err++;
+      state.netErr++;
+      state.consecutiveServerProblems++;
+      update(`ERROR\t@${username}\tserver status_code=${result.statusCode} ${result.statusMsg || ""}`.trim());
+      return false;
+    }
+
+    state.netOk++;
+    state.consecutiveServerProblems = 0;
+    update(`NET\t@${username}\taccepted HTTP ${result.httpStatus}${result.statusCode === 0 ? " status_code=0" : ""}`);
+    return true;
+  }
+
   async function unfollow(row) {
     if (!row.button || !buttonLooksFollowing(row.button)) {
       state.skip++;
       update(`SKIP\t@${row.username}\tfollowing button not found`);
-      return;
+      return false;
     }
 
+    const netStart = networkMonitor ? networkMonitor.results.length : 0;
     row.button.scrollIntoView({ block: "center", inline: "nearest" });
     await sleep(150);
     row.button.click();
+    state.actions++;
     await sleep(CONFIG.confirmDelayMs);
 
     const confirmButton = findConfirmButton();
     if (confirmButton) {
       const confirmText = cleanText(confirmButton);
       confirmButton.click();
-      await sleep(CONFIG.clickDelayMs);
-      state.ok++;
-      update(`OK\t@${row.username}\tconfirmed: ${confirmText}`);
-      return;
+      const netResult = networkMonitor && await networkMonitor.waitForResult(netStart, CONFIG.networkWaitMs);
+      const accepted = applyNetworkSafety(netResult, row.username);
+      if (accepted) {
+        state.ok++;
+        update(`OK\t@${row.username}\tconfirmed: ${confirmText}`);
+      }
+      await pacedSleep(CONFIG.clickDelayMs, CONFIG.clickJitterMs);
+      return accepted;
     }
 
-    await sleep(CONFIG.clickDelayMs);
-    state.ok++;
-    update(`OK\t@${row.username}\tclicked; no confirm dialog detected`);
+    const netResult = networkMonitor && await networkMonitor.waitForResult(netStart, CONFIG.networkWaitMs);
+    const accepted = applyNetworkSafety(netResult, row.username);
+    if (accepted) {
+      state.ok++;
+      update(`OK\t@${row.username}\tclicked; no confirm dialog detected`);
+    }
+    await pacedSleep(CONFIG.clickDelayMs, CONFIG.clickJitterMs);
+    return accepted;
   }
 
   update();
@@ -290,9 +537,20 @@
         update(`DRY\t@${row.username}\twould unfollow (${row.buttonText || "button"})`);
       } else {
         await unfollow(row);
-        if (state.ok >= CONFIG.maxActions) {
+
+        if (state.consecutiveServerProblems >= CONFIG.stopOnConsecutiveServerProblems) {
+          state.stopped = true;
+          update(`STOP\tALL\tserver rejected ${state.consecutiveServerProblems} actions in a row`);
+        }
+
+        if (state.actions >= CONFIG.maxActions) {
           state.stopped = true;
           update(`STOP\tALL\tmaxActions reached: ${CONFIG.maxActions}`);
+        }
+
+        if (!state.stopped && CONFIG.pauseEveryActions > 0 && state.actions % CONFIG.pauseEveryActions === 0) {
+          update(`PAUSE\tALL\tcooldown after ${state.actions} actions`);
+          await pacedSleep(CONFIG.pauseMs, CONFIG.scrollJitterMs);
         }
       }
     }
@@ -312,14 +570,14 @@
       list.scrollHeight
     );
     list.dispatchEvent(new Event("scroll", { bubbles: true }));
-    await sleep(CONFIG.scrollDelayMs);
+    await pacedSleep(CONFIG.scrollDelayMs, CONFIG.scrollJitterMs);
 
     if (list.scrollTop === before && atBottom) stableRounds++;
   }
 
   log.push("");
   log.push(`Finished: ${new Date().toISOString()}`);
-  log.push(`Summary: OK=${state.ok} DRY=${state.dry} SKIP=${state.skip} ERROR=${state.err}`);
+  log.push(`Summary: ACTIONS=${state.actions} OK=${state.ok} DRY=${state.dry} SKIP=${state.skip} ERROR=${state.err} NET_OK=${state.netOk} NET_WARN=${state.netWarn} NET_ERR=${state.netErr}`);
   if (CONFIG.dryRun) {
     log.push("Dry-run only. Change CONFIG.dryRun to false for live unfollow.");
   }
